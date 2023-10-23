@@ -610,7 +610,7 @@ release: $(PROGRAM)
 	cd release; tar cvf pihpsdr-$(GIT_VERSION).tar pihpsdr
 
 .PHONY: install-deps
-install-libs:
+install-deps:
 ifeq ($(UNAME_S), Darwin)
 	zsh ./MacOs/brew.init
 else
@@ -627,7 +627,7 @@ endif
 install: $(PROGRAM) install-dirs
 ifeq ($(UNAME_S), Linux)
 	install $(PROGRAM) $(EXECDIR)
-	install LINUX/hpsdr.png $(APPICONSDIR)
+	install LINUX/hpsdr.png $(APPICONDIR)
 	install LINUX/hpsdr_icon.png $(ICONSDIR)
 	install LINUX/pihpsdr.desktop $(APPSDIR)
 endif
