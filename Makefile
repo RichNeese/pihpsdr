@@ -690,7 +690,6 @@ hpsdrsim:       src/hpsdrsim.o src/newhpsdrsim.o
 bootloader:	src/bootloader.c
 	$(CC) -o bootloader src/bootloader.c -lpcap
 
-
 #############################################################################
 #
 # Build Debian Pkgs 
