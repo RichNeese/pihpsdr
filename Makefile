@@ -652,10 +652,8 @@ ifeq ($(UNAME_S), Linux)
 endif
 
 .PHONY: uninstall
-uninstall: $(PROGRAM) 
-ifeq ($(UNAME_S), Darwin)
-	rm $(MACAPPDIR)/pihpsdr.app
-else
+uninstall:
+ifeq ($(UNAME_S), Linux)
 	rm $(EXECDIR)/pihpsdr
 	rm $(APPSDIR)/pihpsdr.desktop
 	rm -rf $(ICONSDIR)
@@ -699,7 +697,16 @@ bootloader:	src/bootloader.c
 #
 #############################################################################
 debian:
-	bash ./make_deb.sh
+	mkdir -p pkg/pihpsdr/usr/local/bin
+	mkdir -p pkg/pihpsdr/usr/share/pihpsdr
+	mkdir -p pkg/pihpsdr/usr/share/applications
+	mkdir -p pkg/pihpsdr/usr/share/icons/pihpsdr
+	cp $(PROGRAM) pkg/pihpsdr/usr/local/bin
+	cp /usr/local/lib/libwdsp.so pkg/pihpsdr/usr/local/lib
+	cp release/pihpsdr/hpsdr.png pkg/pihpsdr/usr/share/pihpsdr
+	cp release/pihpsdr/hpsdr_icon.png pkg/pihpsdr/usr/share/icons/pihpsdr
+	cp pihpsdr.desktop pkg/pihpsdr/usr/share/applications
+	cd pkg; dpkg-deb --build pihpsdr
 	
 #############################################################################
 #
