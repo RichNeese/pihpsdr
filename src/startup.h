@@ -1,5 +1,5 @@
 /* Copyright (C)
-* 2015 - John Melton, G0ORX/N6LYT
+* 2023 - Christoph van Wüllen, DL1YCF
 *
 *   This program is free software: you can redistribute it and/or modify
 *   it under the terms of the GNU General Public License as published by
@@ -16,47 +16,9 @@
 *
 */
 
-char build_date[] = GIT_DATE;
-char build_version[] = GIT_VERSION;
-char build_commit[] = GIT_COMMIT;
+#ifndef _STARTUP_H_
+#define _STARTUP_H_
 
-char build_options[] =
-#ifdef GPIO
-  "GPIO "
-#endif
-#ifdef MIDI
-  "MIDI "
-#endif
-#ifdef SATURN
-  "SATURN "
-#endif
-#ifdef USBOZY
-  "USBOZY "
-#endif
-#ifdef SOAPYSDR
-  "SOAPYSDR "
-#endif
-#ifdef STEMLAB_DISCOVERY
-  "STEMLAB "
-#endif
-#ifdef EXTNR
-  "EXTNR "
-#endif
-#ifdef CLIENT_SERVER
-  "SERVER "
-#endif
-  "";
+void startup(const char* path);
 
-char build_audio[] =
-#ifdef ALSA
-  "ALSA";
-#endif
-#ifdef PULSEAUDIO
-  "PulseAudio";
-#endif
-#ifdef PORTAUDIO
-  "PortAudio";
-#endif
-#if !defined(ALSA) && !defined(PORTAUDIO) && !defined(PULSEAUDIO)
-  "(unkown)";
 #endif

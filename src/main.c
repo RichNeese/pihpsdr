@@ -54,6 +54,7 @@
 #include "exit_menu.h"
 #include "message.h"
 #include "mystring.h"
+#include "startup.h"
 
 struct utsname unameData;
 
@@ -268,7 +269,7 @@ static int init(void *data) {
 
     char text[1024];
     snprintf(text, 1024, "Please do not close this window until wisdom plans are completed ...\n\n... %s",
-            wisdom_get_status());
+             wisdom_get_status());
     status_text(text);
   }
 
@@ -367,37 +368,42 @@ static void activate_pihpsdr(GtkApplication *app, gpointer data) {
   GError *error;
   GtkWidget *image;
   gboolean rc;
-
   t_print("create image and icon\n");
-
+  error = NULL;
   rc = gtk_window_set_icon_from_file (GTK_WINDOW(top_window), "hpsdr.png", &error);
+
   if (rc) {
     image = gtk_image_new_from_file("hpsdr.png");
   } else {
     if (error) {
       t_print("%s\n", error->message);
-      //g_free(error);
+      g_error_free(error);
     }
+
+    error = NULL;
     rc = gtk_window_set_icon_from_file (GTK_WINDOW(top_window), "/usr/share/pihpsdr/hpsdr.png", &error);
-  }
-  if (rc) {
-    image = gtk_image_new_from_file("/usr/share/pihpsdr/hpsdr.png");
-  } else {
-    if (error) {
-      t_print("%s\n", error->message);
-      //g_free(error);
+
+    if (rc) {
+      image = gtk_image_new_from_file("/usr/share/pihpsdr/hpsdr.png");
+    } else {
+      if (error) {
+        t_print("%s\n", error->message);
+        g_error_free(error);
+      }
+
+      error = NULL;
+      rc = gtk_window_set_icon_from_file (GTK_WINDOW(top_window), "/usr/local/share/pihpsdr/hpsdr.png", &error);
+      image = gtk_image_new_from_file("/usr/local/share/pihpsdr/hpsdr.png");
+
+      if (!rc) {
+        if (error) {
+          t_print("%s\n", error->message);
+          g_error_free(error);
+        }
+      }
     }
-    rc = gtk_window_set_icon_from_file (GTK_WINDOW(top_window), "/usr/local/share/pihpsdr/hpsdr.png", &error);
   }
-  if (rc) {
-    image = gtk_image_new_from_file("/usr/local/share/pihpsdr/hpsdr.png");
-  } else {
-    if (error) {
-      t_print("%s\n", error->message);
-      //g_free(error);
-    }
-  }
-  
+
   g_signal_connect (top_window, "delete-event", G_CALLBACK (main_delete), NULL);
   //
   // We want to use the space-bar as an alternative to go to TX
@@ -422,7 +428,7 @@ static void activate_pihpsdr(GtkApplication *app, gpointer data) {
   gtk_grid_attach(GTK_GRID(topgrid), pi_label, 1, 0, 3, 1);
   t_print("create build label\n");
   snprintf(text, 256, "Built %s, Version %s\nOptions: %s\nAudio module: %s",
-       build_date, build_version, build_options, build_audio);
+           build_date, build_version, build_options, build_audio);
   GtkWidget *build_date_label = gtk_label_new(text);
   gtk_widget_set_name(build_date_label, "med_txt");
   gtk_widget_set_halign(build_date_label, GTK_ALIGN_START);
@@ -443,10 +449,7 @@ int main(int argc, char **argv) {
   GtkApplication *pihpsdr;
   int rc;
   char name[1024];
-#ifdef __APPLE__
-  void MacOSstartup(const char *path);
-  MacOSstartup(argv[0]);
-#endif
+  startup(argv[0]);
   snprintf(name, 1024, "org.g0orx.pihpsdr.pid%d", getpid());
   //t_print("gtk_application_new: %s\n",name);
   pihpsdr = gtk_application_new(name, G_APPLICATION_FLAGS_NONE);
