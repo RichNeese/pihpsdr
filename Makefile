@@ -693,7 +693,7 @@ ifeq ($(UNAME_S), Linux)
 endif
 
 .PHONY: install
-install: $(PROGRAM) install-dirs
+install: install-dirs
 ifeq ($(UNAME_S), Linux)
 	install $(PROGRAM) $(EXECDIR)
 	install LINUX/hpsdr.png $(APPICONDIR)
