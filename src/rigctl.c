@@ -568,10 +568,7 @@ static gpointer rigctl_cw_thread(gpointer data) {
     dotsamples = 57600 / cw_keyer_speed;
     dashsamples = (3456 * cw_keyer_weight) / cw_keyer_speed;
     CAT_cw_is_active = 1;
-
-    if (protocol == NEW_PROTOCOL) {
-      schedule_transmit_specific();
-    }
+    schedule_transmit_specific();
 
     if (!mox) {
       // activate PTT
@@ -587,10 +584,7 @@ static gpointer rigctl_cw_thread(gpointer data) {
       // still no MOX? --> silently discard CW character and give up
       if (!mox) {
         CAT_cw_is_active = 0;
-
-        if (protocol == NEW_PROTOCOL) {
-          schedule_transmit_specific();
-        }
+        schedule_transmit_specific();
 
         continue;
       }
@@ -603,10 +597,7 @@ static gpointer rigctl_cw_thread(gpointer data) {
       // removing MOX, changing the mode to non-CW, or because a CW key has been hit.
       // Do not remove PTT in the latter case
       CAT_cw_is_active = 0;
-
-      if (protocol == NEW_PROTOCOL) {
-        schedule_transmit_specific();
-      }
+      schedule_transmit_specific();
 
       // If a CW key has been hit, we continue in TX mode.
       // Otherwise, switch PTT off.
@@ -640,10 +631,7 @@ static gpointer rigctl_cw_thread(gpointer data) {
       if (cw_buf_in != cw_buf_out) { continue; }
 
       CAT_cw_is_active = 0;
-
-      if (protocol == NEW_PROTOCOL) {
-        schedule_transmit_specific();
-      }
+      schedule_transmit_specific();
 
       if (!cw_key_hit) {
         g_idle_add(ext_mox_update, GINT_TO_POINTER(0));
@@ -665,10 +653,7 @@ static gpointer rigctl_cw_thread(gpointer data) {
   // of a transmission
   if (CAT_cw_is_active) {
     CAT_cw_is_active = 0;
-
-    if (protocol == NEW_PROTOCOL) {
-      schedule_transmit_specific();
-    }
+    schedule_transmit_specific();
 
     g_idle_add(ext_mox_update, GINT_TO_POINTER(0));
   }
@@ -1862,6 +1847,7 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
         int agc = atoi(&command[4]);
         // update RX1 AGC
         receiver[0]->agc = agc;
+        set_agc(receiver[0], agc);
         g_idle_add(ext_vfo_update, NULL);
       }
 
@@ -1878,6 +1864,7 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
           int agc = atoi(&command[4]);
           // update RX2 AGC
           receiver[1]->agc = agc;
+          set_agc(receiver[1], agc);
           g_idle_add(ext_vfo_update, NULL);
         }
       } else {
@@ -3204,11 +3191,7 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
         send_resp(client->fd, reply);
       } else if (command[5] == ';') {
         vfo[get_tx_vfo()].xit_enabled = atoi(&command[4]);
-
-        if (protocol == NEW_PROTOCOL) {
-          schedule_high_priority();
-        }
-
+        schedule_high_priority();
         g_idle_add(ext_vfo_update, NULL);
       }
 
@@ -4216,6 +4199,7 @@ int parse_cmd(void *data) {
       } else if (command[5] == ';') {
         // update RX1 AGC
         receiver[0]->agc = atoi(&command[2]) / 5;
+        set_agc(receiver[0], receiver[0]->agc);
         g_idle_add(ext_vfo_update, NULL);
       }
 

@@ -535,7 +535,7 @@ static void open_udp_socket() {
   }
 
   optlen = sizeof(optval);
-  optval = IPTOS_PREC_CRITIC_ECP | IPTOS_LOWDELAY;    
+  optval = IPTOS_PREC_CRITIC_ECP | IPTOS_LOWDELAY;
 
   if (setsockopt(tmp, IPPROTO_IP, IP_TOS, &optval, optlen) < 0) {
     t_perror("data_socket: IP_TOS");
@@ -943,13 +943,6 @@ static long long channel_freq(int chan) {
       freq += vfo[vfonum].xit;
     }
 
-    if (!cw_is_on_vfo_freq) {
-      if (vfo[vfonum].mode == modeCWU) {
-        freq += (long long)cw_keyer_sidetone_frequency;
-      } else if (vfo[vfonum].mode == modeCWL) {
-        freq -= (long long)cw_keyer_sidetone_frequency;
-      }
-    }
   } else {
     //
     // determine RX frequency associated with VFO #vfonum
@@ -961,12 +954,10 @@ static long long channel_freq(int chan) {
       freq += vfo[vfonum].rit;
     }
 
-    if (cw_is_on_vfo_freq) {
-      if (vfo[vfonum].mode == modeCWU) {
-        freq -= (long long)cw_keyer_sidetone_frequency;
-      } else if (vfo[vfonum].mode == modeCWL) {
-        freq += (long long)cw_keyer_sidetone_frequency;
-      }
+    if (vfo[vfonum].mode == modeCWU) {
+      freq -= (long long)cw_keyer_sidetone_frequency;
+    } else if (vfo[vfonum].mode == modeCWL) {
+      freq += (long long)cw_keyer_sidetone_frequency;
     }
   }
 
@@ -2182,8 +2173,17 @@ void ozy_send_buffer() {
         output_buffer[C1] |= 0x01;
       }
 
+      //
+      // This is a quirk working around a bug in the
+      // FPGA iambic keyer
+      //
+      uint8_t rfdelay = cw_keyer_ptt_delay;
+      uint8_t rfmax = 900 / cw_keyer_speed;
+  
+      if (rfdelay > rfmax) { rfdelay = rfmax; }
+
       output_buffer[C2] = cw_keyer_sidetone_volume;
-      output_buffer[C3] = cw_keyer_ptt_delay;
+      output_buffer[C3] = rfdelay;
       command = 8;
       break;
 

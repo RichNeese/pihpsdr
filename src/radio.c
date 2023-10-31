@@ -172,20 +172,6 @@ int pa_power = 0;
 const int pa_power_list[] = {1, 5, 10, 30, 50, 100, 200, 500, 1000};
 double pa_trim[11];
 
-int updates_per_second = 10;
-
-int panadapter_high = -40;
-int panadapter_low = -140;
-
-int display_filled = 1;
-int display_gradient = 1;
-int display_detector_mode = DETECTOR_MODE_AVERAGE;
-int display_average_mode = AVERAGE_MODE_LOG_RECURSIVE;
-double display_average_time = 120.0;
-
-int waterfall_high = -100;
-int waterfall_low = -150;
-
 int display_zoompan = 0;
 int display_sliders = 0;
 int display_toolbar = 0;
@@ -222,9 +208,6 @@ int cw_keyer_ptt_delay = 30;           // 0-255ms
 int cw_keyer_hang_time = 500;          // ms
 int cw_keyer_sidetone_frequency = 800; // Hz
 int cw_breakin = 1;                    // 0=disabled 1=enabled
-
-int cw_is_on_vfo_freq = 1;             // 1= signal on VFO freq, 0= signal offset by side tone
-// shall hard-wire this to "1"
 
 int vfo_encoder_divisor = 15;
 
@@ -752,7 +735,7 @@ static void create_visual() {
       receiver_create_remote(receiver[i]);
     } else {
 #endif
-      receiver[i] = create_receiver(CHANNEL_RX0 + i, my_width, updates_per_second, my_width, rx_height / RECEIVERS);
+      receiver[i] = create_receiver(CHANNEL_RX0 + i, my_width, my_width, rx_height / RECEIVERS);
       setSquelch(receiver[i]);
 #ifdef CLIENT_SERVER
     }
@@ -810,9 +793,9 @@ static void create_visual() {
 
     if (radio_has_transmitter) {
       if (duplex) {
-        transmitter = create_transmitter(CHANNEL_TX, updates_per_second, my_width / 4, my_height / 2);
+        transmitter = create_transmitter(CHANNEL_TX, my_width / 4, my_height / 2);
       } else {
-        transmitter = create_transmitter(CHANNEL_TX, updates_per_second, my_width, rx_height);
+        transmitter = create_transmitter(CHANNEL_TX, my_width, rx_height);
       }
 
       can_transmit = 1;
@@ -1478,9 +1461,7 @@ void start_radio() {
     }
   }
 
-  if (protocol == NEW_PROTOCOL) {
-    schedule_high_priority();
-  }
+  schedule_high_priority();
 
 #ifdef SOAPYSDR
 
@@ -1604,9 +1585,7 @@ void radio_change_receivers(int r) {
   if (!radio_is_remote) {
 #endif
 
-    if (protocol == NEW_PROTOCOL) {
-      schedule_high_priority();
-    }
+    schedule_high_priority();
 
     if (protocol == ORIGINAL_PROTOCOL) {
       old_protocol_run();
@@ -1848,10 +1827,8 @@ void vox_changed(int state) {
 
   vox = state;
 
-  if (protocol == NEW_PROTOCOL) {
-    schedule_high_priority();
-    schedule_receive_specific();
-  }
+  schedule_high_priority();
+  schedule_receive_specific();
 }
 
 void setTune(int state) {
@@ -1906,10 +1883,8 @@ void setTune(int state) {
       }
     }
 
-    if (protocol == NEW_PROTOCOL) {
-      schedule_high_priority();
-      //schedule_general();
-    }
+    schedule_high_priority();
+    //schedule_general();
 
     if (state) {
       if (!duplex) {
@@ -1921,10 +1896,7 @@ void setTune(int state) {
           // their slew-down before going TX.
           SetChannelState(receiver[i]->id, 0, 1);
           set_displaying(receiver[i], 0);
-
-          if (protocol == NEW_PROTOCOL) {
-            schedule_high_priority();
-          }
+          schedule_high_priority();
         }
       }
 
@@ -2005,10 +1977,9 @@ void setTune(int state) {
     }
   }
 
-  if (protocol == NEW_PROTOCOL) {
-    schedule_high_priority();
-    schedule_receive_specific();
-  }
+  schedule_high_priority();
+  schedule_transmit_specific();
+  schedule_receive_specific();
 }
 
 int getTune() {
@@ -2150,9 +2121,7 @@ void calcDriveLevel() {
   //  t_print("%s: Level=%d\n", __FUNCTION__, transmitter->drive_level);
   //}
 
-  if (isTransmitting()  && protocol == NEW_PROTOCOL) {
-    schedule_high_priority();
-  }
+  schedule_high_priority();
 }
 
 void setDrive(double value) {
@@ -2293,10 +2262,8 @@ void set_alex_antennas() {
     }
   }
 
-  if (protocol == NEW_PROTOCOL) {
-    schedule_high_priority();         // possibly update RX/TX antennas
-    schedule_general();               // possibly update PA disable
-  }
+  schedule_high_priority();         // possibly update RX/TX antennas
+  schedule_general();               // possibly update PA disable
 }
 
 void tx_vfo_changed() {
@@ -2315,10 +2282,9 @@ void tx_vfo_changed() {
     calcDriveLevel();
   }
 
-  if (protocol == NEW_PROTOCOL) {
-    schedule_high_priority();         // possibly update RX/TX antennas
-    schedule_general();               // possibly update PA disable
-  }
+  schedule_high_priority();         // possibly update RX/TX antennas
+  schedule_transmit_specific();     // possibly un-set "CW mode"
+  schedule_general();               // possibly update PA disable
 }
 
 void set_alex_attenuation(int v) {
@@ -2337,9 +2303,7 @@ void set_alex_attenuation(int v) {
     receiver[0]->alex_attenuation = v;
   }
 
-  if (protocol == NEW_PROTOCOL) {
-    schedule_high_priority();
-  }
+  schedule_high_priority();
 }
 
 void radio_split_toggle() {
@@ -2371,8 +2335,6 @@ void radioRestoreState() {
   // but this is too much for the moment. TODO: initialize at least all
   // variables that are needed if the radio is remote
   //
-  GetPropI0("display_filled",                                display_filled);
-  GetPropI0("display_gradient",                              display_gradient);
   GetPropI0("display_zoompan",                               display_zoompan);
   GetPropI0("display_sliders",                               display_sliders);
   GetPropI0("display_toolbar",                               display_toolbar);
@@ -2421,14 +2383,6 @@ void radioRestoreState() {
   GetPropI0("filter_board",                                  filter_board);
   GetPropI0("pa_enabled",                                    pa_enabled);
   GetPropI0("pa_power",                                      pa_power);
-  GetPropI0("updates_per_second",                            updates_per_second);
-  GetPropI0("display_detector_mode",                         display_detector_mode);
-  GetPropI0("display_average_mode",                          display_average_mode);
-  GetPropF0("display_average_time",                          display_average_time);
-  GetPropI0("panadapter_high",                               panadapter_high);
-  GetPropI0("panadapter_low",                                panadapter_low);
-  GetPropI0("waterfall_high",                                waterfall_high);
-  GetPropI0("waterfall_low",                                 waterfall_low);
   GetPropF0("mic_gain",                                      mic_gain);
   GetPropI0("mic_boost",                                     mic_boost);
   GetPropI0("mic_linein",                                    mic_linein);
@@ -2596,8 +2550,6 @@ void radioSaveState() {
   // What comes now is essentially copied from radioRestoreState,
   // with "GetProp" replaced by "SetProp".
   //
-  SetPropI0("display_filled",                                display_filled);
-  SetPropI0("display_gradient",                              display_gradient);
   //
   // Use the "saved" Zoompan/Slider/Toolbar display status
   // if they are currently hidden via the "Hide" button
@@ -2641,14 +2593,6 @@ void radioSaveState() {
   SetPropI0("filter_board",                                  filter_board);
   SetPropI0("pa_enabled",                                    pa_enabled);
   SetPropI0("pa_power",                                      pa_power);
-  SetPropI0("updates_per_second",                            updates_per_second);
-  SetPropI0("display_detector_mode",                         display_detector_mode);
-  SetPropI0("display_average_mode",                          display_average_mode);
-  SetPropF0("display_average_time",                          display_average_time);
-  SetPropI0("panadapter_high",                               panadapter_high);
-  SetPropI0("panadapter_low",                                panadapter_low);
-  SetPropI0("waterfall_high",                                waterfall_high);
-  SetPropI0("waterfall_low",                                 waterfall_low);
   SetPropF0("mic_gain",                                      mic_gain);
   SetPropI0("mic_boost",                                     mic_boost);
   SetPropI0("mic_linein",                                    mic_linein);
@@ -2761,7 +2705,7 @@ void radioSaveState() {
 void calculate_display_average(RECEIVER *rx) {
   double display_avb;
   int display_average;
-  double t = 0.001 * display_average_time;
+  double t = 0.001 * rx->display_average_time;
   display_avb = exp(-1.0 / ((double)rx->fps * t));
   display_average = max(2, (int)fmin(60, (double)rx->fps * t));
   SetDisplayAvBackmult(rx->id, 0, display_avb);

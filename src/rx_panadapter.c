@@ -47,7 +47,6 @@
 
 static gfloat filter_left;
 static gfloat filter_right;
-static gfloat cw_frequency;
 
 static gint sequence_error_count = 0;
 
@@ -158,26 +157,19 @@ void rx_panadapter_update(RECEIVER *rx) {
   double vfofreq = ((double) rx->pixels * 0.5) - (double)rx->pan;
 
   //
-  // There are two options here in CW mode, depending on cw_is_on_vfo_freq.
   //
-  // If true, the CW frequency is the VFO frequency and the center of the spectrum
+  // The CW frequency is the VFO frequency and the center of the spectrum
   // then is at the VFO frequency plus or minus the sidetone frequency. However we
   // will keep the center of the PANADAPTER at the VFO frequency and shift the
   // pixels of the spectrum.
   //
-  // If false, the center of the spectrum is at the VFO frequency and the TX
-  // frequency is VFO freq +/- sidetone frequency. In this case we mark this
-  // freq by a yellow line.
-  //
 
-  if (cw_is_on_vfo_freq) {
-    if (mode == modeCWU) {
-      frequency -= cw_keyer_sidetone_frequency;
-      vfofreq += (double) cw_keyer_sidetone_frequency / HzPerPixel;
-    } else if (mode == modeCWL) {
-      frequency += cw_keyer_sidetone_frequency;
-      vfofreq -= (double) cw_keyer_sidetone_frequency / HzPerPixel;
-    }
+  if (mode == modeCWU) {
+    frequency -= cw_keyer_sidetone_frequency;
+    vfofreq += (double) cw_keyer_sidetone_frequency / HzPerPixel;
+  } else if (mode == modeCWL) {
+    frequency += cw_keyer_sidetone_frequency;
+    vfofreq -= (double) cw_keyer_sidetone_frequency / HzPerPixel;
   }
 
   long long min_display = frequency - half + (long long)((double)rx->pan * HzPerPixel);
@@ -201,24 +193,6 @@ void rx_panadapter_update(RECEIVER *rx) {
   filter_right = ((double)rx->pixels * 0.5) - (double)rx->pan + (((double)rx->filter_high + offset) / HzPerPixel);
   cairo_rectangle(cr, filter_left, 0.0, filter_right - filter_left, myheight);
   cairo_fill(cr);
-
-  //
-  // Draw the "yellow line" indicating the CW frequency when
-  // it is not the VFO freq
-  //
-  if (!cw_is_on_vfo_freq && (mode == modeCWU || mode == modeCWL)) {
-    if (active) {
-      cairo_set_source_rgba(cr, COLOUR_ATTN);
-    } else {
-      cairo_set_source_rgba(cr, COLOUR_ATTN_WEAK);
-    }
-
-    cw_frequency = filter_left + ((filter_right - filter_left) / 2.0);
-    cairo_move_to(cr, cw_frequency, 10.0);
-    cairo_line_to(cr, cw_frequency, myheight);
-    cairo_set_line_width(cr, PAN_LINE_THICK);
-    cairo_stroke(cr);
-  }
 
   // plot the levels
   if (active) {
@@ -445,7 +419,7 @@ void rx_panadapter_update(RECEIVER *rx) {
   cairo_pattern_t *gradient;
   gradient = NULL;
 
-  if (display_gradient) {
+  if (rx->display_gradient) {
     gradient = cairo_pattern_create_linear(0.0, myheight, 0.0, 0.0);
     // calculate where S9 is
     double S9 = -73;
@@ -477,7 +451,7 @@ void rx_panadapter_update(RECEIVER *rx) {
     // Different shades of white
     //
     if (active) {
-      if (!display_filled) {
+      if (!rx->display_filled) {
         cairo_set_source_rgba(cr, COLOUR_PAN_FILL3);
       } else {
         cairo_set_source_rgba(cr, COLOUR_PAN_FILL2);
@@ -487,7 +461,7 @@ void rx_panadapter_update(RECEIVER *rx) {
     }
   }
 
-  if (display_filled) {
+  if (rx->display_filled) {
     cairo_close_path (cr);
     cairo_fill_preserve (cr);
     cairo_set_line_width(cr, PAN_LINE_THIN);

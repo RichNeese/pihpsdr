@@ -142,17 +142,6 @@ extern double pa_trim[11];
 extern const int pa_power_list[];
 extern int apollo_tuner;
 
-extern int updates_per_second;
-extern int display_panadapter;
-extern int panadapter_high;
-extern int panadapter_low;
-
-extern int display_filled;
-extern int display_gradient;
-extern int display_detector_mode;
-extern int display_average_mode;
-extern double display_average_time;
-
 extern int display_zoompan;
 extern int display_sliders;
 extern int display_toolbar;
@@ -192,7 +181,6 @@ extern int cw_keyer_ptt_delay;
 extern int cw_keyer_hang_time;
 extern int cw_keyer_sidetone_frequency;
 extern int cw_breakin;
-extern int cw_is_on_vfo_freq;
 
 extern int vfo_encoder_divisor;
 

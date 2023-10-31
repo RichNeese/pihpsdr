@@ -309,19 +309,27 @@ static mybuffer *get_my_buffer() {
 }
 
 void schedule_high_priority() {
-  new_protocol_high_priority();
+  if (protocol == NEW_PROTOCOL) {
+    new_protocol_high_priority();
+  }
 }
 
 void schedule_general() {
-  new_protocol_general();
+  if (protocol == NEW_PROTOCOL) {
+    new_protocol_general();
+  }
 }
 
 void schedule_receive_specific() {
-  new_protocol_receive_specific();
+  if (protocol == NEW_PROTOCOL) {
+    new_protocol_receive_specific();
+  }
 }
 
 void schedule_transmit_specific() {
-  new_protocol_transmit_specific();
+  if (protocol == NEW_PROTOCOL) {
+    new_protocol_transmit_specific();
+  }
 }
 
 void update_action_table() {
@@ -607,16 +615,14 @@ void new_protocol_init(int pixels) {
     new_protocol_thread_id = g_thread_new( "P2 main", new_protocol_thread, NULL);
   }
 
-  new_protocol_general();
   new_protocol_start();
-  new_protocol_high_priority();
 }
 
 static void new_protocol_general() {
   BAND *band;
   int rc;
-  int txvfo = get_tx_vfo();
   pthread_mutex_lock(&general_mutex);
+  int txvfo = get_tx_vfo();
   band = band_get_band(vfo[txvfo].band);
   memset(general_buffer, 0, sizeof(general_buffer));
   general_buffer[0] = general_sequence >> 24;
@@ -729,18 +735,16 @@ static void new_protocol_high_priority() {
     rx2Frequency += vfo[VFO_B].rit;
   }
 
-  if (cw_is_on_vfo_freq) {
-    if (vfo[VFO_A].mode == modeCWU) {
-      rx1Frequency -= (long long)cw_keyer_sidetone_frequency;
-    } else if (vfo[VFO_A].mode == modeCWL) {
-      rx1Frequency += (long long)cw_keyer_sidetone_frequency;
-    }
+  if (vfo[VFO_A].mode == modeCWU) {
+    rx1Frequency -= (long long)cw_keyer_sidetone_frequency;
+  } else if (vfo[VFO_A].mode == modeCWL) {
+    rx1Frequency += (long long)cw_keyer_sidetone_frequency;
+  }
 
-    if (vfo[VFO_B].mode == modeCWU) {
-      rx2Frequency -= (long long)cw_keyer_sidetone_frequency;
-    } else if (vfo[VFO_B].mode == modeCWL) {
-      rx2Frequency += (long long)cw_keyer_sidetone_frequency;
-    }
+  if (vfo[VFO_B].mode == modeCWU) {
+    rx2Frequency -= (long long)cw_keyer_sidetone_frequency;
+  } else if (vfo[VFO_B].mode == modeCWL) {
+    rx2Frequency += (long long)cw_keyer_sidetone_frequency;
   }
 
   rx1Frequency += frequency_calibration;
@@ -796,14 +800,6 @@ static void new_protocol_high_priority() {
 
   if (vfo[txvfo].xit_enabled) {
     txFrequency += vfo[txvfo].xit;
-  }
-
-  if (!cw_is_on_vfo_freq) {
-    if (txmode == modeCWU) {
-      txFrequency += (long long)cw_keyer_sidetone_frequency;
-    } else if (txmode == modeCWL) {
-      txFrequency -= (long long)cw_keyer_sidetone_frequency;
-    }
   }
 
   txFrequency += frequency_calibration;
@@ -1205,7 +1201,7 @@ static void new_protocol_high_priority() {
   }
 
   //
-  //  Voila mes amis. Envoyons les 1444 octets "high priority" au radio
+  // Send the HighPrio buffer to the radio
   //
   //t_print("new_protocol_high_priority: %s:%d\n",inet_ntoa(high_priority_addr.sin_addr),ntohs(high_priority_addr.sin_port));
 
@@ -1233,8 +1229,8 @@ static void new_protocol_high_priority() {
 }
 
 static void new_protocol_transmit_specific() {
-  int txmode = get_tx_mode();
   pthread_mutex_lock(&tx_spec_mutex);
+  int txmode = get_tx_mode();
   memset(transmit_specific_buffer, 0, sizeof(transmit_specific_buffer));
   transmit_specific_buffer[0] = tx_specific_sequence >> 24;
   transmit_specific_buffer[1] = tx_specific_sequence >> 16;
@@ -1274,6 +1270,15 @@ static void new_protocol_transmit_specific() {
     }
   }
 
+  //
+  // This is a quirk working around a bug in the
+  // FPGA iambic keyer
+  //
+  uint8_t rfdelay = cw_keyer_ptt_delay;
+  uint8_t rfmax = 900 / cw_keyer_speed;
+
+  if (rfdelay > rfmax) { rfdelay = rfmax; }
+
   transmit_specific_buffer[6] = cw_keyer_sidetone_volume & 0x7F;
   transmit_specific_buffer[7] = cw_keyer_sidetone_frequency >> 8;
   transmit_specific_buffer[8] = cw_keyer_sidetone_frequency;
@@ -1281,7 +1286,7 @@ static void new_protocol_transmit_specific() {
   transmit_specific_buffer[10] = cw_keyer_weight;
   transmit_specific_buffer[11] = cw_keyer_hang_time >> 8;
   transmit_specific_buffer[12] = cw_keyer_hang_time;
-  transmit_specific_buffer[13] = cw_keyer_ptt_delay;
+  transmit_specific_buffer[13] = rfdelay;
   transmit_specific_buffer[50] = 0;
 
   if (mic_linein) {
@@ -1450,6 +1455,10 @@ static void new_protocol_receive_specific() {
 }
 
 static void new_protocol_start() {
+  new_protocol_general();
+  usleep(50000);                    // let FPGA digest the port numbers
+  new_protocol_high_priority();
+  usleep(50000);                    // let FPGA digest the "run" command
   new_protocol_transmit_specific();
   new_protocol_receive_specific();
   new_protocol_timer_thread_id = g_thread_new( "P2 task", new_protocol_timer_thread, NULL);
@@ -1564,9 +1573,7 @@ void new_protocol_menu_start() {
     new_protocol_thread_id = g_thread_new( "P2 main", new_protocol_thread, NULL);
   }
 
-  new_protocol_general();
   new_protocol_start();
-  new_protocol_high_priority();
 }
 
 static gpointer new_protocol_rxaudio_thread(gpointer data) {
@@ -1587,17 +1594,22 @@ static gpointer new_protocol_rxaudio_thread(gpointer data) {
     sem_wait(&rxaudio_sem);
 #endif
 
-    if (!running || rxaudio_drain) { continue; }
+    if (!running) { break; }
+
+    nptr = rxaudio_outptr + 256;
+
+    if (nptr >= RXAUDIORINGBUFLEN) { nptr = 0; }
+
+    if (rxaudio_drain) {
+      rxaudio_outptr = nptr;
+      continue;
+    }
 
     audiobuffer[0] = audio_sequence >> 24;
     audiobuffer[1] = audio_sequence >> 16;
     audiobuffer[2] = audio_sequence >> 8;
     audiobuffer[3] = audio_sequence;
     audio_sequence++;
-    nptr = rxaudio_outptr + 256;
-
-    if (nptr >= RXAUDIORINGBUFLEN) { nptr = 0; }
-
     memcpy(&audiobuffer[4], &RXAUDIORINGBUF[rxaudio_outptr], 256);
     MEMORY_BARRIER;
     rxaudio_outptr = nptr;
@@ -2394,6 +2406,9 @@ void* new_protocol_timer_thread(void* arg) {
   //         RX spec   packets every 200 msec
   //         TX spec   packets every 200 msec
   //         General   packets every 800 msec
+  //
+  // This function is to be made obsolete by calling
+  // schedule_XXXXX() whenever a state variable has changed
   //
   int cycling = 0;
   usleep(100000);                               // wait for things to settle down
