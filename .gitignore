@@ -12,12 +12,11 @@ wdspWisdom*
 *.props
 ip.addr
 .DS_Store
-LINUX/wdsp
 LINUX/SoapySDR
 LINUX/SoapyPlutoSDR
 LINUX/SoapyRTLSDR
-MacOS/wdsp
 release/LatexManual/piHPSDR-Manual.pdf
+wdsp/libwdsp.a
 @*
 
 pihpsdr.tar.gz

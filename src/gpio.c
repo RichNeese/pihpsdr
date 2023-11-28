@@ -90,29 +90,33 @@ static int PTTOUT_LINE = -1;
 static int CWOUT_LINE = -1;
 
 #ifdef GPIO
-static struct gpiod_line *pttout_line = NULL;
-static struct gpiod_line *cwout_line = NULL;
+  static struct gpiod_line *pttout_line = NULL;
+  static struct gpiod_line *cwout_line = NULL;
 #endif
 
 void gpio_set_ptt(int state) {
 #ifdef GPIO
+
   if (pttout_line) {
     //t_print("%s: state=%d\n", __FUNCTION__, state);
     if (gpiod_line_set_value(pttout_line, NOT(state)) < 0) {
       t_print("%s failed: %s\n", __FUNCTION__, g_strerror(errno));
     }
   }
+
 #endif
 }
 
 void gpio_set_cw(int state) {
 #ifdef GPIO
+
   if (cwout_line) {
     //t_print("%s: state=%d\n", __FUNCTION__, state);
     if (gpiod_line_set_value(cwout_line, NOT(state)) < 0) {
       t_print("%s failed: %s\n", __FUNCTION__, g_strerror(errno));
     }
   }
+
 #endif
 }
 
@@ -248,7 +252,7 @@ long settle_time = 50; // ms
 // The controller1 switches are hard-wired to the toolbar buttons
 //
 
-static ENCODER encoders_no_controller[MAX_ENCODERS] = {
+static const ENCODER encoders_no_controller[MAX_ENCODERS] = {
   {FALSE, TRUE, 0, 0, 0, 0, 0, 0, R_START, FALSE, TRUE, 0, 0, 0, 0, 0, 0, R_START, FALSE, TRUE, 0, 0, 0L},
   {FALSE, TRUE, 0, 0, 0, 0, 0, 0, R_START, FALSE, TRUE, 0, 0, 0, 0, 0, 0, R_START, FALSE, TRUE, 0, 0, 0L},
   {FALSE, TRUE, 0, 0, 0, 0, 0, 0, R_START, FALSE, TRUE, 0, 0, 0, 0, 0, 0, R_START, FALSE, TRUE, 0, 0, 0L},
@@ -260,8 +264,8 @@ static const ENCODER encoders_controller1[MAX_ENCODERS] = {
   {TRUE, TRUE, 20, 1, 26, 1, 0, AF_GAIN,  R_START, FALSE, TRUE, 0, 0, 0, 0, 0, 0, R_START, TRUE,  TRUE, 25, MENU_BAND,       0L},
   {TRUE, TRUE, 16, 1, 19, 1, 0, AGC_GAIN, R_START, FALSE, TRUE, 0, 0, 0, 0, 0, 0, R_START, TRUE,  TRUE,  8, MENU_BANDSTACK,  0L},
   {TRUE, TRUE,  4, 1, 21, 1, 0, DRIVE,    R_START, FALSE, TRUE, 0, 0, 0, 0, 0, 0, R_START, TRUE,  TRUE,  7, MENU_MODE,       0L},
-  {TRUE, TRUE, 18, 1, 17, 1, 0, VFO,      R_START, FALSE, TRUE, 0, 0, 0, 0, 0, 0, R_START, FALSE, TRUE,  0, NONE,            0L},
-  {FALSE, TRUE, 0, 1,  0, 0, 1, NONE,     R_START, FALSE, TRUE, 0, 0, 0, 0, 0, 0, R_START, FALSE, TRUE,  0, NONE,            0L},
+  {TRUE, TRUE, 18, 1, 17, 1, 0, VFO,      R_START, FALSE, TRUE, 0, 0, 0, 0, 0, 0, R_START, FALSE, TRUE,  0, NO_ACTION,       0L},
+  {FALSE, TRUE, 0, 1,  0, 0, 1, NO_ACTION,R_START, FALSE, TRUE, 0, 0, 0, 0, 0, 0, R_START, FALSE, TRUE,  0, NO_ACTION,       0L},
 };
 
 static const ENCODER encoders_controller2_v1[MAX_ENCODERS] = {
@@ -269,7 +273,7 @@ static const ENCODER encoders_controller2_v1[MAX_ENCODERS] = {
   {TRUE, TRUE,  4, 1, 21, 1, 0, AGC_GAIN, R_START, FALSE, TRUE, 0, 0, 0, 0, 0, 0, R_START, TRUE,  TRUE, 27, MENU_BANDSTACK, 0L},
   {TRUE, TRUE, 16, 1, 19, 1, 0, IF_WIDTH, R_START, FALSE, TRUE, 0, 0, 0, 0, 0, 0, R_START, TRUE,  TRUE, 23, MENU_MODE,      0L},
   {TRUE, TRUE, 25, 1,  8, 1, 0, RIT,      R_START, FALSE, TRUE, 0, 0, 0, 0, 0, 0, R_START, TRUE,  TRUE, 24, MENU_FREQUENCY, 0L},
-  {TRUE, TRUE, 18, 1, 17, 1, 0, VFO,      R_START, FALSE, TRUE, 0, 0, 0, 0, 0, 0, R_START, FALSE, TRUE,  0, NONE,           0L},
+  {TRUE, TRUE, 18, 1, 17, 1, 0, VFO,      R_START, FALSE, TRUE, 0, 0, 0, 0, 0, 0, R_START, FALSE, TRUE,  0, NO_ACTION,      0L},
 };
 
 static const ENCODER encoders_controller2_v2[MAX_ENCODERS] = {
@@ -277,7 +281,7 @@ static const ENCODER encoders_controller2_v2[MAX_ENCODERS] = {
   {TRUE, TRUE,  9, 1,  7, 1, 0, AGC_GAIN_RX2, R_START1, TRUE,  TRUE, 21, 1,  4, 1, 0, AF_GAIN_RX2, R_START1, TRUE,  TRUE, 27, RX2,            0L}, //ENC3
   {TRUE, TRUE, 11, 1, 10, 1, 0, DIV_GAIN,     R_START1, TRUE,  TRUE, 19, 1, 16, 1, 0, DIV_PHASE,   R_START1, TRUE,  TRUE, 23, DIV,            0L}, //ENC4
   {TRUE, TRUE, 13, 1, 12, 1, 0, XIT,          R_START1, TRUE,  TRUE,  8, 1, 25, 1, 0, RIT,         R_START1, TRUE,  TRUE, 24, MENU_FREQUENCY, 0L}, //ENC5
-  {TRUE, TRUE, 18, 1, 17, 1, 0, VFO,          R_START, FALSE, TRUE,  0, 0,  0, 0, 0, NONE,        R_START, FALSE, TRUE,  0, NONE,           0L}, //ENC1/VFO
+  {TRUE, TRUE, 18, 1, 17, 1, 0, VFO,          R_START,  FALSE, TRUE,  0, 0,  0, 0, 0, NO_ACTION,   R_START, FALSE,  TRUE,  0, NO_ACTION,      0L}, //ENC1/VFO
 };
 
 static const ENCODER encoders_g2_frontpanel[MAX_ENCODERS] = {
@@ -285,170 +289,189 @@ static const ENCODER encoders_g2_frontpanel[MAX_ENCODERS] = {
   {TRUE, TRUE,  9, 1,  7, 1, 0, AGC_GAIN, R_START1, TRUE,  TRUE, 21, 1,  4, 1, 0, AF_GAIN,   R_START1, TRUE,  TRUE, 27, MUTE,           0L}, //ENC3
   {TRUE, TRUE, 11, 1, 10, 1, 0, DIV_GAIN, R_START1, TRUE,  TRUE, 19, 1, 16, 1, 0, DIV_PHASE, R_START1, TRUE,  TRUE, 23, DIV,            0L}, //ENC7
   {TRUE, TRUE, 13, 1, 12, 1, 0, XIT,      R_START1, TRUE,  TRUE,  8, 1, 25, 1, 0, RIT,       R_START1, TRUE,  TRUE, 24, MENU_FREQUENCY, 0L}, //ENC5
-  {TRUE, TRUE, 18, 1, 17, 1, 0, VFO,      R_START, FALSE, TRUE,  0, 0,  0, 0, 0, 0,         R_START, FALSE, TRUE,  0, NONE,           0L}, //VFO
+  {TRUE, TRUE, 18, 1, 17, 1, 0, VFO,      R_START,  FALSE, TRUE,  0, 0,  0, 0, 0, 0,         R_START, FALSE,  TRUE,  0, NO_ACTION,      0L}, //VFO
+};
+
+static const SWITCH switches_no_controller[MAX_SWITCHES] = {
+  {FALSE, FALSE, 0, NO_ACTION, 0L},
+  {FALSE, FALSE, 0, NO_ACTION, 0L},
+  {FALSE, FALSE, 0, NO_ACTION, 0L},
+  {FALSE, FALSE, 0, NO_ACTION, 0L},
+  {FALSE, FALSE, 0, NO_ACTION, 0L},
+  {FALSE, FALSE, 0, NO_ACTION, 0L},
+  {FALSE, FALSE, 0, NO_ACTION, 0L},
+  {FALSE, FALSE, 0, NO_ACTION, 0L},
+  {FALSE, FALSE, 0, NO_ACTION, 0L},
+  {FALSE, FALSE, 0, NO_ACTION, 0L},
+  {FALSE, FALSE, 0, NO_ACTION, 0L},
+  {FALSE, FALSE, 0, NO_ACTION, 0L},
+  {FALSE, FALSE, 0, NO_ACTION, 0L},
+  {FALSE, FALSE, 0, NO_ACTION, 0L},
+  {FALSE, FALSE, 0, NO_ACTION, 0L},
+  {FALSE, FALSE, 0, NO_ACTION, 0L}
 };
 
 SWITCH switches_controller1[MAX_FUNCTIONS][MAX_SWITCHES] = {
-  { {TRUE, TRUE, 27, MOX, 0L},
-    {TRUE, TRUE, 13, MENU_BAND, 0L},
-    {TRUE, TRUE, 12, MENU_BANDSTACK, 0L},
-    {TRUE, TRUE, 6, MENU_MODE, 0L},
-    {TRUE, TRUE, 5, MENU_FILTER, 0L},
-    {TRUE, TRUE, 24, MENU_NOISE, 0L},
-    {TRUE, TRUE, 23, MENU_AGC, 0L},
-    {TRUE, TRUE, 22, FUNCTION, 0L},
-    {FALSE, FALSE, 0, NO_ACTION, 0L},
-    {FALSE, FALSE, 0, NO_ACTION, 0L},
-    {FALSE, FALSE, 0, NO_ACTION, 0L},
-    {FALSE, FALSE, 0, NO_ACTION, 0L},
-    {FALSE, FALSE, 0, NO_ACTION, 0L},
-    {FALSE, FALSE, 0, NO_ACTION, 0L},
-    {FALSE, FALSE, 0, NO_ACTION, 0L},
-    {FALSE, FALSE, 0, NO_ACTION, 0L}
+  { {TRUE,  TRUE, 27, MOX,            0L},
+    {TRUE,  TRUE, 13, MENU_BAND,      0L},
+    {TRUE,  TRUE, 12, MENU_BANDSTACK, 0L},
+    {TRUE,  TRUE,  6, MENU_MODE,      0L},
+    {TRUE,  TRUE,  5, MENU_FILTER,    0L},
+    {TRUE,  TRUE, 24, MENU_NOISE,     0L},
+    {TRUE,  TRUE, 23, MENU_AGC,       0L},
+    {TRUE,  TRUE, 22, FUNCTION,       0L},
+    {FALSE, FALSE, 0, NO_ACTION,      0L},
+    {FALSE, FALSE, 0, NO_ACTION,      0L},
+    {FALSE, FALSE, 0, NO_ACTION,      0L},
+    {FALSE, FALSE, 0, NO_ACTION,      0L},
+    {FALSE, FALSE, 0, NO_ACTION,      0L},
+    {FALSE, FALSE, 0, NO_ACTION,      0L},
+    {FALSE, FALSE, 0, NO_ACTION,      0L},
+    {FALSE, FALSE, 0, NO_ACTION,      0L}
   },
-  { {TRUE, TRUE, 27, MOX, 0L},
-    {TRUE, TRUE, 13, LOCK, 0L},
-    {TRUE, TRUE, 12, CTUN, 0L},
-    {TRUE, TRUE, 6, A_TO_B, 0L},
-    {TRUE, TRUE, 5, B_TO_A, 0L},
-    {TRUE, TRUE, 24, A_SWAP_B, 0L},
-    {TRUE, TRUE, 23, SPLIT, 0L},
-    {TRUE, TRUE, 22, FUNCTION, 0L},
-    {FALSE, FALSE, 0, NO_ACTION, 0L},
-    {FALSE, FALSE, 0, NO_ACTION, 0L},
-    {FALSE, FALSE, 0, NO_ACTION, 0L},
-    {FALSE, FALSE, 0, NO_ACTION, 0L},
-    {FALSE, FALSE, 0, NO_ACTION, 0L},
-    {FALSE, FALSE, 0, NO_ACTION, 0L},
-    {FALSE, FALSE, 0, NO_ACTION, 0L},
-    {FALSE, FALSE, 0, NO_ACTION, 0L}
+  { {TRUE,  TRUE, 27, MOX,            0L},
+    {TRUE,  TRUE, 13, LOCK,           0L},
+    {TRUE,  TRUE, 12, CTUN,           0L},
+    {TRUE,  TRUE,  6, A_TO_B,         0L},
+    {TRUE,  TRUE,  5, B_TO_A,         0L},
+    {TRUE,  TRUE, 24, A_SWAP_B,       0L},
+    {TRUE,  TRUE, 23, SPLIT,          0L},
+    {TRUE,  TRUE, 22, FUNCTION,       0L},
+    {FALSE, FALSE, 0, NO_ACTION,      0L},
+    {FALSE, FALSE, 0, NO_ACTION,      0L},
+    {FALSE, FALSE, 0, NO_ACTION,      0L},
+    {FALSE, FALSE, 0, NO_ACTION,      0L},
+    {FALSE, FALSE, 0, NO_ACTION,      0L},
+    {FALSE, FALSE, 0, NO_ACTION,      0L},
+    {FALSE, FALSE, 0, NO_ACTION,      0L},
+    {FALSE, FALSE, 0, NO_ACTION,      0L}
   },
-  { {TRUE, TRUE, 27, MOX, 0L},
-    {TRUE, TRUE, 13, MENU_FREQUENCY, 0L},
-    {TRUE, TRUE, 12, MENU_MEMORY, 0L},
-    {TRUE, TRUE, 6, RIT_ENABLE, 0L},
-    {TRUE, TRUE, 5, RIT_PLUS, 0L},
-    {TRUE, TRUE, 24, RIT_MINUS, 0L},
-    {TRUE, TRUE, 23, RIT_CLEAR, 0L},
-    {TRUE, TRUE, 22, FUNCTION, 0L},
-    {FALSE, FALSE, 0, NO_ACTION, 0L},
-    {FALSE, FALSE, 0, NO_ACTION, 0L},
-    {FALSE, FALSE, 0, NO_ACTION, 0L},
-    {FALSE, FALSE, 0, NO_ACTION, 0L},
-    {FALSE, FALSE, 0, NO_ACTION, 0L},
-    {FALSE, FALSE, 0, NO_ACTION, 0L},
-    {FALSE, FALSE, 0, NO_ACTION, 0L},
-    {FALSE, FALSE, 0, NO_ACTION, 0L}
+  { {TRUE,  TRUE, 27, MOX,            0L},
+    {TRUE,  TRUE, 13, MENU_FREQUENCY, 0L},
+    {TRUE,  TRUE, 12, MENU_MEMORY,    0L},
+    {TRUE,  TRUE,  6, RIT_ENABLE,     0L},
+    {TRUE,  TRUE,  5, RIT_PLUS,       0L},
+    {TRUE,  TRUE, 24, RIT_MINUS,      0L},
+    {TRUE,  TRUE, 23, RIT_CLEAR,      0L},
+    {TRUE,  TRUE, 22, FUNCTION,       0L},
+    {FALSE, FALSE, 0, NO_ACTION,      0L},
+    {FALSE, FALSE, 0, NO_ACTION,      0L},
+    {FALSE, FALSE, 0, NO_ACTION,      0L},
+    {FALSE, FALSE, 0, NO_ACTION,      0L},
+    {FALSE, FALSE, 0, NO_ACTION,      0L},
+    {FALSE, FALSE, 0, NO_ACTION,      0L},
+    {FALSE, FALSE, 0, NO_ACTION,      0L},
+    {FALSE, FALSE, 0, NO_ACTION,      0L}
   },
-  { {TRUE, TRUE, 27, MOX, 0L},
-    {TRUE, TRUE, 13, MENU_FREQUENCY, 0L},
-    {TRUE, TRUE, 12, MENU_MEMORY, 0L},
-    {TRUE, TRUE, 6, XIT_ENABLE, 0L},
-    {TRUE, TRUE, 5, XIT_PLUS, 0L},
-    {TRUE, TRUE, 24, XIT_MINUS, 0L},
-    {TRUE, TRUE, 23, XIT_CLEAR, 0L},
-    {TRUE, TRUE, 22, FUNCTION, 0L},
-    {FALSE, FALSE, 0, NO_ACTION, 0L},
-    {FALSE, FALSE, 0, NO_ACTION, 0L},
-    {FALSE, FALSE, 0, NO_ACTION, 0L},
-    {FALSE, FALSE, 0, NO_ACTION, 0L},
-    {FALSE, FALSE, 0, NO_ACTION, 0L},
-    {FALSE, FALSE, 0, NO_ACTION, 0L},
-    {FALSE, FALSE, 0, NO_ACTION, 0L},
-    {FALSE, FALSE, 0, NO_ACTION, 0L}
+  { {TRUE,  TRUE, 27, MOX,            0L},
+    {TRUE,  TRUE, 13, MENU_FREQUENCY, 0L},
+    {TRUE,  TRUE, 12, MENU_MEMORY,    0L},
+    {TRUE,  TRUE,  6, XIT_ENABLE,     0L},
+    {TRUE,  TRUE,  5, XIT_PLUS,       0L},
+    {TRUE,  TRUE, 24, XIT_MINUS,      0L},
+    {TRUE,  TRUE, 23, XIT_CLEAR,      0L},
+    {TRUE,  TRUE, 22, FUNCTION,       0L},
+    {FALSE, FALSE, 0, NO_ACTION,      0L},
+    {FALSE, FALSE, 0, NO_ACTION,      0L},
+    {FALSE, FALSE, 0, NO_ACTION,      0L},
+    {FALSE, FALSE, 0, NO_ACTION,      0L},
+    {FALSE, FALSE, 0, NO_ACTION,      0L},
+    {FALSE, FALSE, 0, NO_ACTION,      0L},
+    {FALSE, FALSE, 0, NO_ACTION,      0L},
+    {FALSE, FALSE, 0, NO_ACTION,      0L}
   },
-  { {TRUE, TRUE, 27, MOX, 0L},
-    {TRUE, TRUE, 13, MENU_FREQUENCY, 0L},
-    {TRUE, TRUE, 12, SPLIT, 0L},
-    {TRUE, TRUE, 6, DUPLEX, 0L},
-    {TRUE, TRUE, 5, SAT, 0L},
-    {TRUE, TRUE, 24, RSAT, 0L},
-    {TRUE, TRUE, 23, MENU_BAND, 0L},
-    {TRUE, TRUE, 22, FUNCTION, 0L},
-    {FALSE, FALSE, 0, NO_ACTION, 0L},
-    {FALSE, FALSE, 0, NO_ACTION, 0L},
-    {FALSE, FALSE, 0, NO_ACTION, 0L},
-    {FALSE, FALSE, 0, NO_ACTION, 0L},
-    {FALSE, FALSE, 0, NO_ACTION, 0L},
-    {FALSE, FALSE, 0, NO_ACTION, 0L},
-    {FALSE, FALSE, 0, NO_ACTION, 0L},
-    {FALSE, FALSE, 0, NO_ACTION, 0L}
+  { {TRUE,  TRUE, 27, MOX,            0L},
+    {TRUE,  TRUE, 13, MENU_FREQUENCY, 0L},
+    {TRUE,  TRUE, 12, SPLIT,          0L},
+    {TRUE,  TRUE,  6, DUPLEX,         0L},
+    {TRUE,  TRUE,  5, SAT,            0L},
+    {TRUE,  TRUE, 24, RSAT,           0L},
+    {TRUE,  TRUE, 23, MENU_BAND,      0L},
+    {TRUE,  TRUE, 22, FUNCTION,       0L},
+    {FALSE, FALSE, 0, NO_ACTION,      0L},
+    {FALSE, FALSE, 0, NO_ACTION,      0L},
+    {FALSE, FALSE, 0, NO_ACTION,      0L},
+    {FALSE, FALSE, 0, NO_ACTION,      0L},
+    {FALSE, FALSE, 0, NO_ACTION,      0L},
+    {FALSE, FALSE, 0, NO_ACTION,      0L},
+    {FALSE, FALSE, 0, NO_ACTION,      0L},
+    {FALSE, FALSE, 0, NO_ACTION,      0L}
   },
-  { {TRUE, TRUE, 27, MOX, 0L},
-    {TRUE, TRUE, 13, TUNE, 0L},
-    {TRUE, TRUE, 12, TUNE_FULL, 0L},
-    {TRUE, TRUE, 6, TUNE_MEMORY, 0L},
-    {TRUE, TRUE, 5, MENU_BAND, 0L},
-    {TRUE, TRUE, 24, MENU_MODE, 0L},
-    {TRUE, TRUE, 23, MENU_FILTER, 0L},
-    {TRUE, TRUE, 22, FUNCTION, 0L},
-    {FALSE, FALSE, 0, NO_ACTION, 0L},
-    {FALSE, FALSE, 0, NO_ACTION, 0L},
-    {FALSE, FALSE, 0, NO_ACTION, 0L},
-    {FALSE, FALSE, 0, NO_ACTION, 0L},
-    {FALSE, FALSE, 0, NO_ACTION, 0L},
-    {FALSE, FALSE, 0, NO_ACTION, 0L},
-    {FALSE, FALSE, 0, NO_ACTION, 0L},
-    {FALSE, FALSE, 0, NO_ACTION, 0L}
+  { {TRUE,  TRUE, 27, MOX,            0L},
+    {TRUE,  TRUE, 13, TUNE,           0L},
+    {TRUE,  TRUE, 12, TUNE_FULL,      0L},
+    {TRUE,  TRUE,  6, TUNE_MEMORY,    0L},
+    {TRUE,  TRUE,  5, MENU_BAND,      0L},
+    {TRUE,  TRUE, 24, MENU_MODE,      0L},
+    {TRUE,  TRUE, 23, MENU_FILTER,    0L},
+    {TRUE,  TRUE, 22, FUNCTION,       0L},
+    {FALSE, FALSE, 0, NO_ACTION,      0L},
+    {FALSE, FALSE, 0, NO_ACTION,      0L},
+    {FALSE, FALSE, 0, NO_ACTION,      0L},
+    {FALSE, FALSE, 0, NO_ACTION,      0L},
+    {FALSE, FALSE, 0, NO_ACTION,      0L},
+    {FALSE, FALSE, 0, NO_ACTION,      0L},
+    {FALSE, FALSE, 0, NO_ACTION,      0L},
+    {FALSE, FALSE, 0, NO_ACTION,      0L}
   },
 
 };
 
 static const SWITCH switches_controller2_v1[MAX_SWITCHES] = {
-  {FALSE, FALSE, 0, MOX, 0L},
-  {FALSE, FALSE, 0, TUNE, 0L},
-  {FALSE, FALSE, 0, PS, 0L},
-  {FALSE, FALSE, 0, TWO_TONE, 0L},
-  {FALSE, FALSE, 0, NR, 0L},
-  {FALSE, FALSE, 0, A_TO_B, 0L},
-  {FALSE, FALSE, 0, B_TO_A, 0L},
-  {FALSE, FALSE, 0, MODE_MINUS, 0L},
-  {FALSE, FALSE, 0, BAND_MINUS, 0L},
-  {FALSE, FALSE, 0, MODE_PLUS, 0L},
-  {FALSE, FALSE, 0, BAND_PLUS, 0L},
-  {FALSE, FALSE, 0, XIT_ENABLE, 0L},
-  {FALSE, FALSE, 0, NB, 0L},
-  {FALSE, FALSE, 0, SNB, 0L},
-  {FALSE, FALSE, 0, LOCK, 0L},
-  {FALSE, FALSE, 0, CTUN, 0L}
+  {FALSE, FALSE, 0, MOX,              0L},
+  {FALSE, FALSE, 0, TUNE,             0L},
+  {FALSE, FALSE, 0, PS,               0L},
+  {FALSE, FALSE, 0, TWO_TONE,         0L},
+  {FALSE, FALSE, 0, NR,               0L},
+  {FALSE, FALSE, 0, A_TO_B,           0L},
+  {FALSE, FALSE, 0, B_TO_A,           0L},
+  {FALSE, FALSE, 0, MODE_MINUS,       0L},
+  {FALSE, FALSE, 0, BAND_MINUS,       0L},
+  {FALSE, FALSE, 0, MODE_PLUS,        0L},
+  {FALSE, FALSE, 0, BAND_PLUS,        0L},
+  {FALSE, FALSE, 0, XIT_ENABLE,       0L},
+  {FALSE, FALSE, 0, NB,               0L},
+  {FALSE, FALSE, 0, SNB,              0L},
+  {FALSE, FALSE, 0, LOCK,             0L},
+  {FALSE, FALSE, 0, CTUN,             0L}
 };
 
 static const SWITCH switches_controller2_v2[MAX_SWITCHES] = {
-  {FALSE, FALSE, 0, MOX, 0L},   //GPB7 SW2
-  {FALSE, FALSE, 0, TUNE, 0L},  //GPB6 SW3
-  {FALSE, FALSE, 0, PS, 0L},    //GPB5 SW4
-  {FALSE, FALSE, 0, TWO_TONE, 0L}, //GPB4 SW5
-  {FALSE, FALSE, 0, NR, 0L},    //GPA3 SW6
-  {FALSE, FALSE, 0, NB, 0L},    //GPB3 SW14
-  {FALSE, FALSE, 0, SNB, 0L},   //GPB2 SW15
-  {FALSE, FALSE, 0, XIT_ENABLE, 0L}, //GPA7 SW13
-  {FALSE, FALSE, 0, BAND_PLUS, 0L}, //GPA6 SW12
-  {FALSE, FALSE, 0, MODE_PLUS, 0L}, //GPA5 SW11
-  {FALSE, FALSE, 0, BAND_MINUS, 0L}, //GPA4 SW10
-  {FALSE, FALSE, 0, MODE_MINUS, 0L}, //GPA0 SW9
-  {FALSE, FALSE, 0, A_TO_B, 0L}, //GPA2 SW7
-  {FALSE, FALSE, 0, B_TO_A, 0L}, //GPA1 SW8
-  {FALSE, FALSE, 0, LOCK, 0L},  //GPB1 SW16
-  {FALSE, FALSE, 0, CTUN, 0L}   //GPB0 SW17
+  {FALSE, FALSE, 0, MOX,              0L},  //GPB7 SW2
+  {FALSE, FALSE, 0, TUNE,             0L},  //GPB6 SW3
+  {FALSE, FALSE, 0, PS,               0L},  //GPB5 SW4
+  {FALSE, FALSE, 0, TWO_TONE,         0L},  //GPB4 SW5
+  {FALSE, FALSE, 0, NR,               0L},  //GPA3 SW6
+  {FALSE, FALSE, 0, NB,               0L},  //GPB3 SW14
+  {FALSE, FALSE, 0, SNB,              0L},  //GPB2 SW15
+  {FALSE, FALSE, 0, XIT_ENABLE,       0L},  //GPA7 SW13
+  {FALSE, FALSE, 0, BAND_PLUS,        0L},  //GPA6 SW12
+  {FALSE, FALSE, 0, MODE_PLUS,        0L},  //GPA5 SW11
+  {FALSE, FALSE, 0, BAND_MINUS,       0L},  //GPA4 SW10
+  {FALSE, FALSE, 0, MODE_MINUS,       0L},  //GPA0 SW9
+  {FALSE, FALSE, 0, A_TO_B,           0L},  //GPA2 SW7
+  {FALSE, FALSE, 0, B_TO_A,           0L},  //GPA1 SW8
+  {FALSE, FALSE, 0, LOCK,             0L},  //GPB1 SW16
+  {FALSE, FALSE, 0, CTUN,             0L}   //GPB0 SW17
 };
 
 static const SWITCH switches_g2_frontpanel[MAX_SWITCHES] = {
-  {FALSE, FALSE, 0, XIT_ENABLE, 0L}, //GPB7 SW22
-  {FALSE, FALSE, 0, RIT_ENABLE, 0L}, //GPB6 SW21
-  {FALSE, FALSE, 0, FUNCTION, 0L}, //GPB5 SW20
-  {FALSE, FALSE, 0, SPLIT, 0L}, //GPB4 SW19
-  {FALSE, FALSE, 0, LOCK, 0L},  //GPA3 SW9
-  {FALSE, FALSE, 0, B_TO_A, 0L}, //GPB3 SW18
-  {FALSE, FALSE, 0, A_TO_B, 0L}, //GPB2 SW17
-  {FALSE, FALSE, 0, MODE_MINUS, 0L}, //GPA7 SW13
-  {FALSE, FALSE, 0, BAND_PLUS, 0L}, //GPA6 SW12
-  {FALSE, FALSE, 0, FILTER_PLUS, 0L}, //GPA5 SW11
-  {FALSE, FALSE, 0, MODE_PLUS, 0L}, //GPA4 SW10
-  {FALSE, FALSE, 0, MOX, 0L},   //GPA0 SW6
-  {FALSE, FALSE, 0, CTUN, 0L},  //GPA2 SW8
-  {FALSE, FALSE, 0, TUNE, 0L},  //GPA1 SW7
-  {FALSE, FALSE, 0, BAND_MINUS, 0L}, //GPB1 SW16
-  {FALSE, FALSE, 0, FILTER_MINUS, 0L} //GPB0 SW15
+  {FALSE, FALSE, 0, XIT_ENABLE,       0L},  //GPB7 SW22
+  {FALSE, FALSE, 0, RIT_ENABLE,       0L},  //GPB6 SW21
+  {FALSE, FALSE, 0, FUNCTION,         0L},  //GPB5 SW20
+  {FALSE, FALSE, 0, SPLIT,            0L},  //GPB4 SW19
+  {FALSE, FALSE, 0, LOCK,             0L},  //GPA3 SW9
+  {FALSE, FALSE, 0, B_TO_A,           0L},  //GPB3 SW18
+  {FALSE, FALSE, 0, A_TO_B,           0L},  //GPB2 SW17
+  {FALSE, FALSE, 0, MODE_MINUS,       0L},  //GPA7 SW13
+  {FALSE, FALSE, 0, BAND_PLUS,        0L},  //GPA6 SW12
+  {FALSE, FALSE, 0, FILTER_PLUS,      0L},  //GPA5 SW11
+  {FALSE, FALSE, 0, MODE_PLUS,        0L},  //GPA4 SW10
+  {FALSE, FALSE, 0, MOX,              0L},  //GPA0 SW6
+  {FALSE, FALSE, 0, CTUN,             0L},  //GPA2 SW8
+  {FALSE, FALSE, 0, TUNE,             0L},  //GPA1 SW7
+  {FALSE, FALSE, 0, BAND_MINUS,       0L},  //GPB1 SW16
+  {FALSE, FALSE, 0, FILTER_MINUS,     0L}   //GPB0 SW15
 };
 
 ENCODER my_encoders[MAX_ENCODERS];
@@ -480,7 +503,7 @@ static gpointer rotary_encoder_thread(gpointer data) {
   int i;
   enum ACTION action;
   enum ACTION_MODE mode;
-  gint val;
+  int val;
   usleep(250000);
   t_print("%s\n", __FUNCTION__);
 
@@ -649,7 +672,7 @@ static void process_encoder(int e, int l, int addr, int val) {
 }
 
 static void process_edge(int offset, int value) {
-  gint i;
+  int i;
   unsigned int t;
   gboolean found;
   //t_print("%s: offset=%d value=%d\n",__FUNCTION__,offset,value);
@@ -832,7 +855,6 @@ void gpio_default_switch_actions(int ctrlr) {
   case CONTROLLER1:
   default:
     default_switches = NULL;
-    // my_switches remains 'empty', since the toolbar table is used
     break;
 
   case CONTROLLER2_V1:
@@ -891,7 +913,7 @@ void gpio_set_defaults(int ctrlr) {
 
   case CONTROLLER2_V1:
     //
-    // GPIO lines not used by controller: 5, 6, 7, 9, 10, 11, 12, 13, 14 
+    // GPIO lines not used by controller: 5, 6, 7, 9, 10, 11, 12, 13, 14
     //
     CWL_LINE = 9;
     CWR_LINE = 11;
@@ -947,8 +969,10 @@ void gpio_set_defaults(int ctrlr) {
     PTTIN_LINE = 16;
     PTTOUT_LINE = 22;
     CWOUT_LINE = 23;
-    encoders = encoders_no_controller;
-    switches = switches_controller1[0];
+    memcpy(my_encoders, encoders_no_controller, sizeof(my_encoders));
+    memcpy(my_switches, switches_no_controller, sizeof(my_switches));
+    encoders = my_encoders;
+    switches = my_switches;
     break;
   }
 }
@@ -1180,14 +1204,14 @@ static int setup_input_line(struct gpiod_chip *chip, int offset, gboolean pullup
 }
 
 static struct gpiod_line *setup_output_line(struct gpiod_chip *chip, int offset, int initialValue)  {
-  // 
+  //
   // Setup an active-high output line and return the "line"
   // (in case of failure: NULL).
   //
   struct gpiod_line_request_config config;
   t_print("%s: %d\n", __FUNCTION__, offset);
   struct gpiod_line *line = gpiod_chip_get_line(chip, offset);
-  
+
   if (!line) {
     t_print("%s: get_line failed for offset %d: %s\n", __FUNCTION__, offset, g_strerror(errno));
     return NULL;
@@ -1223,11 +1247,12 @@ int gpio_init() {
     goto err;
   }
 
-  if (controller == CONTROLLER1 || controller == CONTROLLER2_V1 || controller == CONTROLLER2_V2 || controller == G2_FRONTPANEL) {
+  if (controller == CONTROLLER1 || controller == CONTROLLER2_V1 || controller == CONTROLLER2_V2
+      || controller == G2_FRONTPANEL) {
     // setup encoders
     t_print("%s: setup encoders\n", __FUNCTION__);
 
-   for (int i = 0; i < MAX_ENCODERS; i++) {
+    for (int i = 0; i < MAX_ENCODERS; i++) {
       if (encoders[i].bottom_encoder_enabled) {
         if (setup_input_line(chip, encoders[i].bottom_encoder_address_a, encoders[i].bottom_encoder_pullup) < 0) {
           continue;
@@ -1284,7 +1309,7 @@ int gpio_init() {
   int have_button = 0;
 
   if (CWL_LINE >= 0) {
-    if ((ret = setup_input_line(chip, CWL_LINE, TRUE)) < 0) {
+    if (setup_input_line(chip, CWL_LINE, TRUE) < 0) {
       t_print("%s: CWL line setup failed\n", __FUNCTION__);
     } else {
       have_button = 1;
@@ -1292,7 +1317,7 @@ int gpio_init() {
   }
 
   if (CWR_LINE >= 0) {
-    if ((ret = setup_input_line(chip, CWR_LINE, TRUE)) < 0) {
+    if (setup_input_line(chip, CWR_LINE, TRUE) < 0) {
       t_print("%s: CWR line setup failed\n", __FUNCTION__);
     } else {
       have_button = 1;
@@ -1300,7 +1325,7 @@ int gpio_init() {
   }
 
   if (CWKEY_LINE >= 0) {
-    if ((ret = setup_input_line(chip, CWKEY_LINE, TRUE)) < 0) {
+    if (setup_input_line(chip, CWKEY_LINE, TRUE) < 0) {
       t_print("%s: CWKEY line setup failed\n", __FUNCTION__);
     } else {
       have_button = 1;
@@ -1308,7 +1333,7 @@ int gpio_init() {
   }
 
   if (PTTIN_LINE >= 0) {
-    if ((ret = setup_input_line(chip, PTTIN_LINE, TRUE)) < 0) {
+    if (setup_input_line(chip, PTTIN_LINE, TRUE) < 0) {
       t_print("%s: CWKEY line setup failed\n", __FUNCTION__);
     } else {
       have_button = 1;

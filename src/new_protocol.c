@@ -82,9 +82,6 @@ int data_socket = -1;
 
 static volatile int running;
 
-static int dash = 0;
-static int dot = 0;
-
 static struct sockaddr_in base_addr;
 static int base_addr_length;
 
@@ -249,7 +246,10 @@ static pthread_mutex_t tx_spec_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t hi_prio_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t general_mutex = PTHREAD_MUTEX_INITIALIZER;
 
-static int local_ptt = 0;
+static int radio_ptt = 0;
+static int radio_dash = 0;
+static int radio_dot = 0;
+static int radio_io6 = 1;
 
 static void new_protocol_start(void);
 static void new_protocol_high_priority(void);
@@ -565,7 +565,6 @@ void new_protocol_init(int pixels) {
     }
 
     optlen = sizeof(optval);
-
 #ifdef IPTOS_DSCP_EF
     optval = IPTOS_DSCP_EF;
 #else
@@ -707,7 +706,6 @@ static void new_protocol_high_priority() {
   int rxvfo    = active_receiver->id; // id of the active receiver
   int othervfo = 1 - rxvfo;           // id of the "other" receiver (only valid if receivers > 1)
   int txmode   = get_tx_mode();
-
   high_priority_buffer_to_radio[0] = high_priority_sequence >> 24;
   high_priority_buffer_to_radio[1] = high_priority_sequence >> 16;
   high_priority_buffer_to_radio[2] = high_priority_sequence >> 8;
@@ -721,9 +719,11 @@ static void new_protocol_high_priority() {
       // the MOX bit, everything is done in the FPGA.
       //
       // However, if we are doing CAT CW, local CW or tuning/TwoTone,
-      // we must put the SDR into TX mode
+      // we must put the SDR into TX mode. The same applies if the
+      // radio reports a PTT signal, since only then we can use
+      // a foot-switch to extend the TX time in a rag-chew QSO
       //
-      if (tune || CAT_cw_is_active || !cw_keyer_internal || transmitter->twotone) {
+      if (tune || CAT_cw_is_active || !cw_keyer_internal || transmitter->twotone || radio_ptt) {
         high_priority_buffer_to_radio[4] |= 0x02;
       }
     } else {
@@ -869,10 +869,11 @@ static void new_protocol_high_priority() {
       //
       high_priority_buffer_to_radio[1400] |= ANAN7000_XVTR_OUT;
     }
+
     if (mute_spkr_amp) {
       //
       // Mute the amplifier of the built-in speakers
-       //
+      //
       high_priority_buffer_to_radio[1400] |= ANAN7000_SPKR_MUTE;
     }
   }
@@ -933,17 +934,14 @@ static void new_protocol_high_priority() {
   switch (device) {
   case NEW_DEVICE_SATURN:
   case NEW_DEVICE_ORION2:
-
     //
     // We have band-pass RX filters for ADC0 and ADC1. So if two
     // receivers use the same ADC, the active one determines the
     // bandpass frequency.
     //
-
     //
     // ADC0 band pass
     //
-
     BPFfreq = 0LL;
 
     if (receivers > 1) {
@@ -951,6 +949,7 @@ static void new_protocol_high_priority() {
         BPFfreq = rxFrequency[othervfo];   // Take frequency of non-active receiver
       }
     }
+
     if (receiver[rxvfo]->adc == 0) {
       BPFfreq = rxFrequency[rxvfo];       // Take (overwrite with) frequency of active receiver
     }
@@ -982,7 +981,6 @@ static void new_protocol_high_priority() {
     //
     // ADC1 band pass
     //
-
     BPFfreq = 0LL;
 
     if (receivers > 1) {
@@ -990,6 +988,7 @@ static void new_protocol_high_priority() {
         BPFfreq = rxFrequency[othervfo];   // Take frequency of non-active receiver
       }
     }
+
     if (receiver[rxvfo]->adc == 1) {
       BPFfreq = rxFrequency[rxvfo];       // Take (overwrite with) frequency of active receiver
     }
@@ -1088,11 +1087,13 @@ static void new_protocol_high_priority() {
     if (receiver[0]->adc == 0) {
       LPFfreq = rxFrequency[0];
     }
+
     if (receivers > 1) {
       if (receiver[1]->adc == 0 && rxFrequency[1] > rxFrequency[0]) {
         LPFfreq = rxFrequency[1];
       }
     }
+
     if (adc0_filter_bypass) {
       LPFfreq = 40000000LL;   // disable LPF
     }
@@ -1192,9 +1193,25 @@ static void new_protocol_high_priority() {
   }
 
   //
-  //  Now we set the bits for Ant1/2/3 (may be different for RX/TX)
+  //  Now we set the bits for Ant1/2/3 (RX and TX may be different)
+  //  ATTENTION:
+  //  When doing CW handled in radio, the radio may start TXing
+  //  before piHPSDR has slewn down the receivers, slewn up the
+  //  transmitter and goes TX. Then, if different Ant1/2/3
+  //  antennas are chosen for RX and TX, parts of the first
+  //  RF dot may arrive at the RX antenna and do bad things
+  //  there. While we cannot exclude this completely, we will
+  //  switch the Ant1/2/3 selection to TX as soon as we see
+  //  a PTT signal from the radio.
+  //  Measurements have shown that we can reduce the time
+  //  from when the radio send PTT to the time when the
+  //  radio receives the new Ant1/2/2 setup from about
+  //  40 (2 RX active) or 20 (1 RX active) to 4 milli seconds, 
+  // and this should be
+  //  enough.
   //
-  if (xmit) {
+
+  if (xmit || radio_ptt) {
     i = transmitter->alex_antenna;
 
     //
@@ -1760,7 +1777,6 @@ static gpointer new_protocol_thread(gpointer data) {
     int bytesread;
     mybuffer *mybuf;
     unsigned char *buffer;
-
     mybuf = get_my_buffer();
     buffer = mybuf->buffer;
     bytesread = recvfrom(data_socket, buffer, NET_BUFFER_SIZE, 0, (struct sockaddr*)&addr, &length);
@@ -2215,16 +2231,16 @@ static void process_high_priority() {
   int previous_dot;
   int previous_dash;
   unsigned int val;
+  static GThread *tune_thread_id = NULL;
   //
   // variable used to manage analog inputs. The accumulators
   // record the value*16
-  // 
+  //
   static unsigned int fwd_acc = 0;
   static unsigned int rev_acc = 0;
   static unsigned int ex_acc = 0;
   static unsigned int adc0_acc = 0;
   static unsigned int adc1_acc = 0;
-  
   const unsigned char *buffer = high_priority_buffer->buffer;
   sequence = ((buffer[0] & 0xFF) << 24) + ((buffer[1] & 0xFF) << 16) + ((buffer[2] & 0xFF) << 8) + (buffer[3] & 0xFF);
 
@@ -2235,17 +2251,28 @@ static void process_high_priority() {
   }
 
   highprio_rcvd_sequence++;
-  previous_ptt = local_ptt;
-  previous_dot = dot;
-  previous_dash = dash;
-  local_ptt = buffer[4] & 0x01;
-  dot = (buffer[4] >> 1) & 0x01;
-  dash = (buffer[4] >> 2) & 0x01;
+  previous_ptt = radio_ptt;
+  previous_dot = radio_dot;
+  previous_dash = radio_dash;
+
+  radio_ptt  = (buffer[4]     ) & 0x01;
+  radio_dot  = (buffer[4] >> 1) & 0x01;
+  radio_dash = (buffer[4] >> 2) & 0x01;
+
+  //
+  // Do this as fast as possible in case of a RX/TX  transition
+  // induced by the radio (in case different RX/TX settings
+  // are valid for Ant1/2/3)
+  //
+  if (previous_ptt == 0 && radio_ptt == 1) {
+    new_protocol_high_priority();
+  }
+
+  radio_io6 = (buffer[59] >> 2) & 0x01;  // 0 = active
   tx_fifo_overrun |= (buffer[4] & 0x40) >> 6;
   tx_fifo_underrun |= (buffer[4] & 0x20) >> 5;
   adc0_overload |= buffer[5] & 0x01;
   adc1_overload |= ((buffer[5] & 0x02) >> 1);
-
   //
   // During RX, HighPrio packets arrive every 50 msec
   // During TX, HighPrio packets arrive every    msec
@@ -2254,40 +2281,51 @@ static void process_high_priority() {
   // can make a moving average with 16 values, and
   // take a max value with 100 values.
   //
-
   val = ((buffer[6] & 0xFF) << 8) | (buffer[7] & 0xFF);
   ex_acc = (15 * ex_acc) / 16  + val;
   val = ((buffer[14] & 0xFF) << 8) | (buffer[15] & 0xFF);
-  fwd_acc = (15 *fwd_acc) / 16 + val;
+  fwd_acc = (15 * fwd_acc) / 16 + val;
   val = ((buffer[22] & 0xFF) << 8) | (buffer[23] & 0xFF);
-  rev_acc = (15 *rev_acc) / 16 + val;
+  rev_acc = (15 * rev_acc) / 16 + val;
   val = ((buffer[55] & 0xFF) << 8) | (buffer[56] & 0xFF);
-  adc1_acc = (15 *adc1_acc) / 16 + val;
+  adc1_acc = (15 * adc1_acc) / 16 + val;
   val = ((buffer[57] & 0xFF) << 8) | (buffer[58] & 0xFF);
-  adc0_acc = (15 *adc0_acc) / 16 + val;
-
+  adc0_acc = (15 * adc0_acc) / 16 + val;
   exciter_power = ex_acc / 16;
   alex_forward_power = fwd_acc / 16;
   alex_reverse_power = rev_acc / 16;
   ADC0 = adc0_acc / 16;
   ADC1 = adc1_acc / 16;
-     
+
   //
   // Stops CAT cw transmission if radio reports "CW action"
   //
-  if (dash || dot) {
+  if (radio_dash || radio_dot) {
     CAT_cw_is_active = 0;
     cw_key_hit = 1;
   }
 
   if (!cw_keyer_internal) {
-    if (dash != previous_dash) { keyer_event(0, dash); }
+    if (radio_dash != previous_dash) { keyer_event(0, radio_dash); }
 
-    if (dot  != previous_dot ) { keyer_event(1, dot ); }
+    if (radio_dot  != previous_dot ) { keyer_event(1, radio_dot ); }
   }
 
-  if (previous_ptt != local_ptt) {
-    g_idle_add(ext_mox_update, GINT_TO_POINTER(local_ptt));
+  if (previous_ptt != radio_ptt) {
+    g_idle_add(ext_mox_update, GINT_TO_POINTER(radio_ptt));
+  }
+  //
+  // If IO6 is active, start TUNE thread if  it is not (yet) active
+  // it is not (yet) running
+  //
+  auto_tune_end = radio_io6;
+  if (radio_io6 == 0 && !auto_tune_flag) {
+    auto_tune_flag = 1;
+    auto_tune_end  = 0;
+    if (tune_thread_id) {
+      g_thread_join(tune_thread_id);
+    }
+    tune_thread_id = g_thread_new("TUNE", auto_tune_thread, NULL);
   }
 }
 
@@ -2314,7 +2352,7 @@ static void process_mic_data(const unsigned char *buffer) {
     // If PTT comes from the radio, possibly use audio from BOTH sources
     // we just add on since in most cases, only one souce will be "active"
     //
-    if (local_ptt) {
+    if (radio_ptt) {
       fsample = (float) sample * 0.00003051;
 
       if (transmitter->local_microphone) { fsample +=  audio_get_next_mic_sample(); }

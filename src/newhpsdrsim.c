@@ -128,7 +128,7 @@ static pthread_t audio_thread_id;
 static pthread_t highprio_thread_id = 0;
 static pthread_t send_highprio_thread_id;
 
-static int watchdog = 0;
+static unsigned int watchdog_count = 0;
 
 void   *ddc_specific_thread(void*);
 void   *duc_specific_thread(void*);
@@ -156,10 +156,10 @@ void new_protocol_general_packet(unsigned char *buffer) {
   if (seqnum != 0 && seqnum != seqold + 1 ) {
     t_print("GP: SEQ ERROR, old=%lu new=%lu\n", seqold, seqnum);
   }
+
 #ifdef PACKETLIST
   t_print("GP rcvd, seq=%lu\n", seqnum);
 #endif
-
   rc = (buffer[5] << 8) + buffer[6];
 
   if (rc == 0) { rc = 1025; }
@@ -406,6 +406,7 @@ void *ddc_specific_thread(void *data) {
     return NULL;
   }
 
+  watchdog_count = 0;
   seqnum = 0;
 
   while (run) {
@@ -425,7 +426,6 @@ void *ddc_specific_thread(void *data) {
 
     seqold = seqnum;
     seqnum = (buffer[0] >> 24) + (buffer[1] << 16) + (buffer[2] << 8) + buffer[3];
-
 #ifdef PACKETLIST
     t_print("DDC SPEC rcvd seq=%lu\n", seqnum);
 #endif
@@ -488,7 +488,7 @@ void *ddc_specific_thread(void *data) {
 
       if (modified) {
         t_print("RX: DDC%d Enable=%d ADC%d Rate=%d SyncMap=%02x\n",
-               i, ddcenable[i], adcmap[i], rxrate[i], syncddc[i]);
+                i, ddcenable[i], adcmap[i], rxrate[i], syncddc[i]);
         rc = 0;
 
         for (j = 0; j < 8; j++) {
@@ -563,11 +563,11 @@ void *duc_specific_thread(void *data) {
       break;
     }
 
+    watchdog_count = 0;
     seqold = seqnum;
     seqnum = (buffer[0] >> 24) + (buffer[1] << 16) + (buffer[2] << 8) + buffer[3];
-
 #ifdef PACKETLIST
-    t_print("DUC SPEC rcvd seq=%lu\n",seqnum);
+    t_print("DUC SPEC rcvd seq=%lu\n", seqnum);
 #endif
 
     if (seqnum != 0 && seqnum != seqold + 1 ) {
@@ -707,7 +707,6 @@ void *highprio_thread(void *data) {
   int rc;
   unsigned long freq;
   uint32_t u32;
-
   int i;
   int alex0_mod, alex1_mod, hp_mod;
   sock = socket(AF_INET, SOCK_DGRAM, 0);
@@ -737,7 +736,7 @@ void *highprio_thread(void *data) {
     //
     rc = recvfrom(sock, buffer, 1444, 0, (struct sockaddr *)&addr, &lenaddr);
 
-    if (watchdog) {
+    if (watchdog_count > 5000) {
       t_print("HP: watchdog barked\n");
       break;
     }
@@ -754,10 +753,10 @@ void *highprio_thread(void *data) {
       break;
     }
 
+    watchdog_count = 0;
     hp_mod = 0;
     seqold = seqnum;
     seqnum = (buffer[0] >> 24) + (buffer[1] << 16) + (buffer[2] << 8) + buffer[3];
-
 #ifdef PACKETLIST
     t_print("HP rcvd seq=%lu\n", seqnum);
 #endif
@@ -983,18 +982,17 @@ void *highprio_thread(void *data) {
   run = 0;
   pthread_join(ddc_specific_thread_id, NULL);
   pthread_join(duc_specific_thread_id, NULL);
-        
+
   for (i = 0; i < NUMRECEIVERS; i++) {
     pthread_join(rx_thread_id[i], NULL);
   }
-        
+
   pthread_join(send_highprio_thread_id, NULL);
   pthread_join(tx_thread_id, NULL);
   pthread_join(mic_thread_id, NULL);
   pthread_join(audio_thread_id, NULL);
-
   t_print("HP thread terminating.\n");
-  watchdog = 0;
+  watchdog_count = 0;
   highprio_thread_id = 0;
   close(sock);
   highprio_thread_id = 0;
@@ -1355,6 +1353,7 @@ void *tx_thread(void * data) {
       break;
     }
 
+    watchdog_count = 0;
     seqold = seqnum;
     seqnum = (buffer[0] << 24) + (buffer[1] << 16) + (buffer[2] << 8) + buffer[3];
 
@@ -1372,6 +1371,7 @@ void *tx_thread(void * data) {
 #ifdef PACKETLIST
     lsum = 0;
 #endif
+
     for (i = 0; i < 240; i++) {
       // process 240 TX iq samples
       sample  = (int)((signed char) (*p++)) << 16;
@@ -1431,7 +1431,6 @@ void *send_highprio_thread(void *data) {
   unsigned char uc;
   int yes = 1;
   int rc;
-  unsigned char *p;
   seqnum = 0;
   sock = socket(AF_INET, SOCK_DGRAM, 0);
 
@@ -1460,46 +1459,116 @@ void *send_highprio_thread(void *data) {
       close(sock);
       break;
     }
+    static uint8_t old_radio_ptt = 0;
+    static uint8_t old_radio_dash = 0;
+    static uint8_t old_radio_dot = 0;
+    static uint8_t old_radio_io2 = 0;
+    static uint8_t old_radio_io4 = 0;
+    static uint8_t old_radio_io5 = 0;
+    static uint8_t old_radio_io6 = 0;
+    static uint8_t old_radio_io8 = 0;
 
+    if (radio_ptt != old_radio_ptt) {
+      t_print("Radio PTT=%d\n", radio_ptt);
+      old_radio_ptt = radio_ptt;
+    }
+    if (radio_dash != old_radio_dash) {
+      t_print("Radio DASH=%d\n", radio_dash);
+      old_radio_dash = radio_dash;
+    }
+    if (radio_dot != old_radio_dot) {
+      t_print("Radio DOT=%d\n", radio_dot);
+      old_radio_dot = radio_dot;
+    }
+    if (radio_io2 != old_radio_io2) {
+      t_print("Radio IO2=%d\n", radio_io2);
+      old_radio_io2 = radio_io2;
+    }
+    if (radio_io4 != old_radio_io4) {
+      t_print("Radio IO4=%d\n", radio_io4);
+      old_radio_io4 = radio_io4;
+    }
+    if (radio_io5 != old_radio_io5) {
+      t_print("Radio IO5=%d\n", radio_io5);
+      old_radio_io5 = radio_io5;
+    }
+    if (radio_io6 != old_radio_io6) {
+      t_print("Radio IO6=%d\n", radio_io6);
+      old_radio_io6 = radio_io6;
+    }
+    if (radio_io8 != old_radio_io8) {
+      t_print("Radio IO8=%d\n", radio_io8);
+      old_radio_io8 = radio_io8;
+    }
     // prepare buffer
     memset(buffer, 0, 60);
-    p = buffer;
-    *p++ = (seqnum >> 24) & 0xFF;
-    *p++ = (seqnum >> 16) & 0xFF;
-    *p++ = (seqnum >>  8) & 0xFF;
-    *p++ = (seqnum >>  0) & 0xFF;
-
+    buffer[0] = (seqnum >> 24) & 0xFF;
+    buffer[1] = (seqnum >> 16) & 0xFF;
+    buffer[2] = (seqnum >>  8) & 0xFF;
+    buffer[3] = (seqnum >>  0) & 0xFF;
     uc = 0;
+
     if (radio_ptt)  { uc |= 1; }
+
     if (radio_dot ) { uc |= 2; }
+
     if (radio_dash) { uc |= 4; }
 
-    *p++ = uc;   // CW states
-    *p++ = 0;    // no ADC overload
-    *p++ = 0;
-    *p++ = txdrive;
-    p += 6;
-    rc = (int) ((4095.0 / c1) * sqrt(maxpwr * txlevel * c2));
-    *p++ = (rc >> 8) & 0xFF;
-    *p++ = (rc     ) & 0xFF;
+    buffer[4] = uc;   // CW states
+
+    if (ptt) {
+      buffer[6] = 0;
+      buffer[7] = txdrive;  // Exciter Power
+
+      if (alex0_enable > 0) {
+        rc = (int) ((4095.0 / c1) * sqrt(maxpwr * txlevel * c2));
+        buffer[14] = (rc >> 8) & 0xFF;
+        buffer[15] = (rc     ) & 0xFF;  // Alex0 forward power
+
+        rc = (int) ((4095.0 / c1) * sqrt(0.05 * maxpwr * txlevel * c2));
+        buffer[22] = (rc >> 8) & 0xFF;
+        buffer[23] = (rc     ) & 0xFF;  // Alex0 reverse power
+      }
+    }
+
     buffer[49] = 4; // SupplyVolts = 0
     buffer[50] = 0;
+
     buffer[51] = 0; // ADC3 = 0
     buffer[52] = 0;
+
     buffer[53] = 0; // ADC2 = 0
     buffer[54] = 0;
+
     buffer[55] = ptt ? 4 : 2; // ADC1 = 1024(TX), 512(RX)
     buffer[56] = 0;
+
     buffer[57] = ptt ? 3 : 2; // ADC0 = 768(TX), 512(RX)
     buffer[58] = 0;
 
+    uc = 0;
+    if (radio_io4) { uc |=  1; }
+    if (radio_io5) { uc |=  2; }
+    if (radio_io6) { uc |=  4; }
+    if (radio_io8) { uc |=  8; }
+    if (radio_io2) { uc |= 16; }
+    buffer[59] = uc;   // Digital user inputs
+
+    radio_digi_changed=0;
     if (sendto(sock, buffer, 60, 0, (struct sockaddr * )&addr_new, sizeof(addr_new)) < 0) {
       t_perror("***** ERROR: HP send thread sendto");
       break;
     }
 
     seqnum++;
-    usleep(50000); // wait 50 msec then send again
+    if (ptt) {
+      usleep(1000);   // send each milli second while transmitting
+    } else {
+      for (int i=0; i<50; i++) {
+        usleep(1000);
+        if (radio_digi_changed) { break; }
+      }
+    }
   }
 
   close(sock);
@@ -1518,7 +1587,6 @@ void *audio_thread(void *data) {
 #ifdef PACKETLIST
   long lsum;
 #endif
-  int count = 0;
   int yes = 1;
   int rc;
   struct timeval tv;
@@ -1549,11 +1617,7 @@ void *audio_thread(void *data) {
 
   while (run) {
     rc = recvfrom(sock, buffer, 260, 0, (struct sockaddr *)&addr, &lenaddr);
-
-    if (count++ > 5000) {
-      watchdog = 1;
-      break;
-    }
+    watchdog_count++;
 
     if (rc < 0 && errno != EAGAIN) {
       t_perror("***** ERROR: Audio thread: recvmsg");
@@ -1567,8 +1631,7 @@ void *audio_thread(void *data) {
       break;
     }
 
-    count = 0;
-
+    watchdog_count = 0;
     seqold = seqnum;
     seqnum = (buffer[0] << 24) + (buffer[1] << 16) + (buffer[2] << 8) + buffer[3];
 
@@ -1579,9 +1642,11 @@ void *audio_thread(void *data) {
     // just skip the audio samples
 #ifdef PACKETLIST
     lsum = 0;
-    for (int  i=4; i<260; i++) {
-      lsum = lsum + buffer[i]*buffer[i];
+
+    for (int  i = 4; i < 260; i++) {
+      lsum = lsum + buffer[i] * buffer[i];
     }
+
     t_print("AUDIO sum=%ld\n", lsum);
 #endif
   }

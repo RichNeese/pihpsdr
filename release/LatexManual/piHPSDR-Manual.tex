@@ -3528,6 +3528,20 @@ without re-adjusting these settings.}
 pressed and into RX when released, this button toggles the PTT state
 when pressed.}
 
+\action{Multi}{MULTI}{E}{This is the multi-function encoder. It executes the encoder action it is
+currently assigned to.}
+
+\action{Multi Select}{MULTISEL}{E}{With this encoder, one cycles through the list of actions
+assigned to the multi-function encoder. The currently active action is displayed in the VFO bar.
+For examples, if the \bltt{AFGAIN} action (change audio volume of the current receiver) is assigned
+to the multi-function encoder, it will change the AF gain. This action it used if one used two
+encoders to activate the multi-function encoder feature.}
+
+\action{Multi Toggle}{MULTIBTN}{B}{This button toggles the ,,multi-encoder select'' state. If this
+state is active, one can change the action assigned to the multi-function encoder using that encoder.
+This function is used if one uses one encoder and one push-button to activate the multi-function
+encoder feature.}
+
 \action{Mute}{MUTE}{B}{Toggles the ,,mute'' state of the active receiver. If a receiver is muted, it
 produces zero-amplitude audio output.}
 
@@ -3807,6 +3821,60 @@ already 1, this is a no-op.}
 
 \action{Zoom -}{ZOOM-}{B}{Increase the ZOOM value of the active receiver by one. If the ZOOM value was
 already 8, this is a no-op.}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\chapter{The MULTI encoder}
+\label{sec:multiencoder}
+
+When using a GPIO or MIDI controller, one (and only one) of the encoders can be chosen as \textit{the}
+multi-function encoder by assigning the \bltt{Multi} action.
+ This means that an action (say, changing the AF volume, the TX drive or
+the step attenuator of the RF front-end) can be dynamically assigned to that encoder, making it very
+facile to use a single ,,knob'' for various purposes. One has to sacrifice either another encoder
+or a push-button to have an easy-to-use handle to change the action currently assigned with the 
+multi-function encoder. Two such setups are possible:
+
+In the first setup, one uses two encoders to implement the multi-function feature. Besides the multi-function
+encoder, one uses another encoder called the multi-selection encoder and assigns
+the \bltt{Multi Select} action to this encoder. With the latter one, one can 
+(alphabetically) cycle
+through the list of actions assigned to the multi-function encoder. Currently, one can choose between
+28 such actions, they are listed here by the long name (see Appendix \ref{sec:actionlist}):
+
+\begin{center}
+\begin{tabular}{llll}
+\bltt{AF Gain}         & \bltt{AGC Gain} & \bltt{Atten}       & \bltt{Cmpr Level}     \\
+\bltt{CW Frequency} & \bltt{CW Speed}        & \bltt{DIV Gain} & \bltt{DIV Phase}  \\
+\bltt{Filter Cut Low} & \bltt{Filter Cut High} & \bltt{IF Shift}        & \bltt{IF Width} \\
+\bltt{Linein Gain} & \bltt{Mic Gain}       & \bltt{PanZoom} & \bltt{Panadapter High} \\
+\bltt{Panadapter Low} & \bltt{Panadapter Step} & \bltt{RF Gain} & \bltt{RIT} \\
+\bltt{Squelch} & \bltt{Tune Drv} & \bltt{TX Drive} & \bltt{VOX Level}  \\
+\bltt{WFall High} & \bltt{WFall Low} & \bltt{XIT} & \bltt{Zoom}
+\end{tabular}
+\end{center}
+
+For those controllers with double encoders on a single shaft, one can preferably assign the encoder
+operated with the outer ring  to \bltt{Multi Select} and the encoder operated with the inner
+knob to \bltt{Multi}. Of course, one can equally well use two different encoders for this purpose.
+
+In the second setup, one only uses one encoder and a push button to implement the multi-function
+feature. The \bltt{Multi Toggle} action is assigned to the push button which is used to toggle
+between the ,,select'' and ,,action'' states. The normal state is the ,,action'' state, where
+turning the encoder exectutes the function it is assigned to. When in ,,select'' state, one can
+assign a new action to the multi-function encoder exactly as in the first setup, except that
+one now turns the multi-function encoder itself. Toggling between the
+two states with the \bltt{Multi Toggle} button
+thus eliminates the need for a second encoder to implement the multi-function feature.
+
+The current \bltt{Multi} action is shown in the VFO bar at the bottom right, that is, below
+the VFO B frequency, using a short and (hopefully) descriptive text, since space there is
+scarce for the smaller VFO bars. The text is printed in yellow in the normal (,,action'') state and
+turns red in the ,,select'' state. This text is not shown until the first multi function action
+(\bltt{MULTI}, \bltt{Multi Select}, or \bltt{Multi Toggle}) is executed such that it is not
+shown as long as no multi function encoder is defined or used. The \bltt{Multi} action is not
+stored in the preferences file, the default action at program startup always is the first in the list,
+namely \bltt{AG gain}.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \chapter{piHPSDR keyboard bindings}
@@ -4580,11 +4648,13 @@ Simply go (in a terminal window) to the directory where you compile piHPSDR and 
 
 \grtt{cp Makefile GNUmakefile}
 
+Then you can change the file GNUmakefile and recompile the program (see end of this section!).
 This ,,trick'' takes care the further compilations use the file \texttt{GNUmakefile} rather than
 \texttt{Makefile},
 and changing the compile time options is accomplished by changing the file \texttt{GNUmakefile} with a text
-editor. In principle, you could change the \texttt{Makefile} directly, but as soon as you  modify
-one of the files in the repository, the qualifier \texttt{-dirty} will be appended to the version number,
+editor. This procedure takes care that the file \texttt{Makefile} is left unchanged,
+ which is important because as soon as you  modify
+one of the files in the repository, the qualifier ,,\texttt{-dirty}'' will be appended to the version number,
 and this is  not what you want if you have not made a real change.
 In the file \texttt{GNUmakefile} at the beginning, you will find a lot of assignments of the form
 
@@ -4635,14 +4705,20 @@ and then start piHPSDR. With the STEMLAB option, this can all be done by piHPSDR
 On Linux systems (including the Raspberry PI), if setting the value to \texttt{ALSA},
 the standard Linux ALSA sound library is used for local audio
 output and local microphone input. In all other cases
-PulseAudio is used. On MacOS, the \texttt{AUDIO} choice has no effect since only the
-PortAudio module works well.
+PulseAudio is used. On MacOS, the \texttt{AUDIO} choice has no effect since the PortAudio
+module is used no matter what the \texttt{AUDIO} setting is.
 
 \rett{EXTENDED\_NR}. (default: disabled)
 There is a special version of the WDSP library that contains additional noise
 reduction facilities which are based on  \texttt{rnnnoise} and \texttt{libspecbleach}, see
  \texttt{https://github.com/vu3rdd/wdsp}. If you have such a version of WDSP installed, these
  extended noise reduction facilities can be used with piHPSDR if this option is \texttt{ON}.
+ Note that activating this option implies that the modified WDSP version is installed such
+ that the WDSP include file can be found by the compiler, and that the WDSP (shared)
+ library can be linked with the ,,\texttt{-lwdsp}'' linker option. This normally means
+ that the WDSP shared library is installed in /usr/local/lib, while the WDSP header file
+ is installed in /usr/local/include. The \texttt{wdsp} directory which is part of
+ the piHPSDR repository is not used if \texttt{EXTENDED\_NR} is activated.
 
  \rett{SERVER}. (default: disabled)
  This is not yet completed but is mentioned here anyway. There are plans to have
@@ -4652,6 +4728,15 @@ reduction facilities which are based on  \texttt{rnnnoise} and \texttt{libspecbl
  between the ,,distant'' radio and the ,,distant'' computer using a straight internet
  cable connection, while the user interface data is exchanged between the two copies of
  piHPSDR running on the two computers.
+ 
+ After you have copied \texttt{Makefile} to \texttt{GNUmakefile} and modified the compile time
+ options, the two commands
+ 
+\grtt{make clean} \\
+\grtt{make}
+
+are necessary to re-compile the program. Do not forget the ,,\texttt{make clean}'', since 
+most of the files need be recompiled after the compile time options have changed!
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \chapter{GPIO Lines for Controllers, CW, PTT}
@@ -4820,7 +4905,12 @@ Do not change the buttons in the other lines, the need not be as shown here.
 
 \textit{This procedure has been tested on a Pi 4B, with a fresh and plain vanilla operating
 system (32-bit ,,BullsEye'', released May 3rd 2023, Kernel version 6.1) obtained from} \\
-\texttt{https://www.raspberrypi.com/software/operating-systems/}.
+\texttt{https://www.raspberrypi.com/software/operating-systems/} \\
+\textit{It also works with the current
+version (32-bit ,,BookWorm'', released Oct 10 2023, Kernel version 6.1). Although there are reports
+that piHPSDR does not work as smoothly with the new ,,WayLand'' window manager as it used to work
+with X11,
+I personally cannot confirm this.}
 
 
 
@@ -4953,7 +5043,12 @@ and the logo is there.
 \label{sec:installsources}
 \textit{This procedure has been tested on a Pi 4B, with a fresh and plain vanilla operating
 system (32-bit ,,BullsEye'', released May 3rd 2023, Kernel version 6.1) obtained from} \\
-\texttt{https://www.raspberrypi.com/software/operating-systems/}.
+\texttt{https://www.raspberrypi.com/software/operating-systems/} \\
+\textit{It also works with the current
+version (32-bit ,,BookWorm'', released Oct 10 2023, Kernel version 6.1). Although there are reports
+that piHPSDR does not work as smoothly with the new ,,WayLand'' window manager as it used to work
+with X11,
+I personally cannot confirm this.}
 
 Installation from the sources is the preferred way of installing piHPSDR, for the following reasons
 
@@ -5031,8 +5126,8 @@ Depending on the internet speed (and the speed of your SD card or hard disk), th
 last command my take some time. The first command loads the complete piHPSDR repository from
 my github accound. The last command (\texttt{libinstall.sh}) contains all the magic,
 it not only loads all required RaspberryPi OS packages,
-but also loads and installs further libraries piHPSDR depends on, such as the WDSP library,
-and the SoapySDR library as well as SoapySDR modules for the Adalm Pluto and RTL SDR sticks.
+but also loads and installs further libraries piHPSDR depends on, 
+including the SoapySDR library as well as SoapySDR modules for the Adalm Pluto and RTL SDR sticks.
 
 \textbf{Note.} The SoapySDR library, and all SoapySDR modules, must be compiled from the sources
 (and the libinstall.sh script does so). The reason is, that SoapySDR in the standard repository
@@ -5050,23 +5145,30 @@ first, as described in Appendix \ref{sec:compiletime}.
 It is clear that double-clicking the piHPSDR desktop icon at this stage leads nowhere,
 since first you need to compile the program.
 However,
-this is simply done by the three commands
+this is simply done by the two commands
 
 \grtt{cd \$HOME/pihpsdr} \\
-\grtt{make clean} \\
 \grtt{make}
 
-and that't it! The first  two commands are even not necessary (since you are in the pihpsdr
-directory at that point, and since there is nothing to be cleaned up).
+and that't it! The first command is even not necessary (since you are in the pihpsdr
+directory at that point).
 But if you make changes (e.g. changing the compile time options as described in
 Appendix \ref{sec:compiletime}, or apply some code modifications)
 and want to re-compile later, this sequence is the safest way to create a new binary,
 namely go to the pihpsdr
-directory, clean up, and recompile.
+directory and recompile by executing ,,make''.
 
 At this stage, double-clicking the piHPSDR desktop icon should start the program. See
 the end of Appendix \ref{sec:installbinary} how to get rid of a window popping up
-and asking you how to execute the program.
+and asking you how to execute the program. You have just compiled the program with 
+the default compile-time options (see Appendix \ref{sec:compiletime}), namely
+\texttt{MIDI}, \texttt{GPIO}, and \texttt{SATURN}, and with \texttt{PulseAudio}
+as audio module. If you want, for example, use SoapySDR hardware such as the AdalmPluto
+or RTL sticks, you have to enable \texttt{SOAPYSDR} and recompile as described in
+Appendix \ref{sec:compiletime}.
+
+If you do not plan to use SoapySDR devices, you need not compile with \texttt{SOAPYSDR}
+enabled and can skip the rest of this appendix.
 
 \textbf{Checking the SoapySDR installation.}
 The installation of the SoapySDR core and the modules for the Adalm Pluto and for RTL SDR
@@ -5077,7 +5179,7 @@ option, you can simply ignore this. To check the SoapySDR installation, open a n
 window and just type the command (be careful to use the correct capitalization!)
 
 \grtt{SoapySDRUtil -info}
-
+\clearpage
 On my test system, this command produced the following output:
 \begin{tiny}
 \begin{verbatim}
@@ -5215,9 +5317,8 @@ installed, which you can safely ignore. Then, the
 Do not worry if \texttt{HomeBrew} was already installed on your computer, the installation
 procedure works in this case as well and does no harm. In addition to
  the \texttt{HomeBrew} core, additional libraries that piHPSDR depends on (e.g. GTK+3), the SoapySDR
- core and SoapySDR modules for several radios are installed. The WDSP library is also downloaded,
- compiled, and stored as \texttt{/usr/local/lib/libwdsp.dylib}.
-
+ core and SoapySDR modules for several radios are installed. 
+ 
  In case something went wrong, or simply to check that \texttt{HomeBrew} has been correctly installed,
  open a \textit{new} terminal window and type the command
 
@@ -5231,8 +5332,9 @@ procedure works in this case as well and does no harm. In addition to
  command is found. This is the reason why you have to open a new terminal window to make this test,
  since in the originally opened window the update of the command search path is not yet effective.
 
- If you want to use SoapySDR, please check the Soapy installation. Open a new terminal window and simply
- type the command (be careful to use the correct capitalization!)
+If you want to use SoapySDR, please check the Soapy installation.
+Open a new terminal window and simply
+type the command (be careful to use the correct capitalization!)
 
 \grtt{SoapySDRUtil -info}
 
@@ -5286,15 +5388,14 @@ do not apply and are automatically deactivated. Without changing the compile tim
 options (see Appendix \ref{sec:compiletime}) the MIDI option is the only one you get
 on MacOS.
 
-Compiling the program then only requires three commands
+Compiling the program then only requires two commands
 
 \grtt{cd \$HOME/pihpsdr} \\
-\grtt{make clean} \\
 \grtt{make app}
 
-and that't it! The first  two commands are even not necessary at this point,
+and that't it! The first command are even not necessary at this point,
 since you are in the pihpsdr
-directory at that point, and since there is nothing to be cleaned up.
+directory at that point.
 But if you make changes in the future (e.g. changing the compile time options as described in
 Appendix \ref{sec:compiletime}, or apply some code modifications)
 and want to re-compile later, this sequence of commands is the safest way to create a new binary.
@@ -5316,21 +5417,22 @@ home directory, to the Desktop, this can also be accomplished with the additiona
 \end{center}
 On Mac computers with Intel processors, \texttt{HomeBrew} is installed in \texttt{/usr/local},
 while on Mac computers with Silicon (M1, M2, M2 pro) processors, it is installed in
-\texttt{/opt/homebrew}. However, the WDSP library is not aware of this and installs its
-library and include file as \texttt{/usr/local/lib/libwdsp.dylib} and
-\texttt{/usr/local/include/wdsp.h}. There is nothing wrong with this, but on a Silicon
-Mac \texttt{/usr/local} may not contain any sub-directories. Therefore, the installation
+\texttt{/opt/homebrew}. 
+There is nothing wrong with this, except that some compilers in their default setup
+look for files in /usr/local but not in /opt/homebrew.
+Therefore, the installation
 procedure, after completing the \texttt{HomeBrew} installation, looks whether
  certain directories exist in \texttt{/usr/local} and, if not, places symbolic links
 there that point to
 
+\vspace{0.5cm}
 \texttt{/usr/local/lib\ \ \ \ } $\quad\to\quad$ \texttt{/opt/homebrew/lib} \\
 \texttt{/usr/local/include} $\quad\to\quad$ \texttt{/opt/homebrew/include} \\
 \texttt{/usr/local/bin\ \ \ \ } $\quad\to\quad$ \texttt{/opt/homebrew/bin} \\
 
-This also solves many problems with compiling packages, since the directories
-in /usr/local are usually in the standard compiler search paths, while
-/opt/homebrew is not.
+Meanwhile, the WDSP library is integrated into the piHPSDR source code tree,
+so this may no longer be necessary for installing piHPSDR, but is probably
+helpful for other projects.
 }
 }
 \end{center}

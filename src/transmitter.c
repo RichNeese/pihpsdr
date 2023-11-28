@@ -23,7 +23,6 @@
 
 #include <wdsp.h>
 
-#include "alex.h"
 #include "band.h"
 #include "bandstack.h"
 #include "channel.h"
@@ -50,6 +49,9 @@
 #include "audio.h"
 #include "ext.h"
 #include "sliders.h"
+#ifdef USBOZY
+  #include "ozyio.h"
+#endif
 #include "sintab.h"
 #include "message.h"
 #include "mystring.h"
@@ -110,7 +112,7 @@ static gboolean close_cb() {
   return TRUE;
 }
 
-static gint update_out_of_band(gpointer data) {
+static int update_out_of_band(gpointer data) {
   TRANSMITTER *tx = (TRANSMITTER *)data;
   tx->out_of_band = 0;
   g_idle_add(ext_vfo_update, NULL);
@@ -121,10 +123,6 @@ void transmitter_set_out_of_band(TRANSMITTER *tx) {
   tx->out_of_band = 1;
   g_idle_add(ext_vfo_update, NULL);
   tx->out_of_band_timer_id = gdk_threads_add_timeout_full(G_PRIORITY_HIGH_IDLE, 1000, update_out_of_band, tx, NULL);
-}
-
-void transmitter_set_deviation(TRANSMITTER *tx) {
-  SetTXAFMDeviation(tx->id, (double)tx->deviation);
 }
 
 void transmitter_set_am_carrier_level(TRANSMITTER *tx) {
@@ -193,7 +191,6 @@ void transmitterSaveState(const TRANSMITTER *tx) {
   SetPropS1("transmitter.%d.microphone_name",   tx->id,               tx->microphone_name);
   SetPropI1("transmitter.%d.puresignal",        tx->id,               tx->puresignal);
   SetPropI1("transmitter.%d.auto_on",           tx->id,               tx->auto_on);
-  SetPropI1("transmitter.%d.single_on",         tx->id,               tx->single_on);
   SetPropI1("transmitter.%d.feedback",          tx->id,               tx->feedback);
   SetPropI1("transmitter.%d.attenuation",       tx->id,               tx->attenuation);
   SetPropI1("transmitter.%d.ctcss_enabled",     tx->id,               tx->ctcss_enabled);
@@ -213,6 +210,7 @@ void transmitterSaveState(const TRANSMITTER *tx) {
   SetPropF1("transmitter.%d.compressor_level",  tx->id,               tx->compressor_level);
   SetPropI1("transmitter.%d.dialog_x",          tx->id,               tx->dialog_x);
   SetPropI1("transmitter.%d.dialog_y",          tx->id,               tx->dialog_y);
+  SetPropI1("transmitter.%d.display_filled",    tx->id,               tx->display_filled);
 }
 
 static void transmitterRestoreState(TRANSMITTER *tx) {
@@ -232,7 +230,6 @@ static void transmitterRestoreState(TRANSMITTER *tx) {
   GetPropS1("transmitter.%d.microphone_name",   tx->id,               tx->microphone_name);
   GetPropI1("transmitter.%d.puresignal",        tx->id,               tx->puresignal);
   GetPropI1("transmitter.%d.auto_on",           tx->id,               tx->auto_on);
-  GetPropI1("transmitter.%d.single_on",         tx->id,               tx->single_on);
   GetPropI1("transmitter.%d.feedback",          tx->id,               tx->feedback);
   GetPropI1("transmitter.%d.attenuation",       tx->id,               tx->attenuation);
   GetPropI1("transmitter.%d.ctcss_enabled",     tx->id,               tx->ctcss_enabled);
@@ -252,6 +249,7 @@ static void transmitterRestoreState(TRANSMITTER *tx) {
   GetPropF1("transmitter.%d.compressor_level",  tx->id,               tx->compressor_level);
   GetPropI1("transmitter.%d.dialog_x",          tx->id,               tx->dialog_x);
   GetPropI1("transmitter.%d.dialog_y",          tx->id,               tx->dialog_y);
+  GetPropI1("transmitter.%d.display_filled",    tx->id,               tx->display_filled);
 }
 
 static double compute_power(double p) {
@@ -275,7 +273,6 @@ static double compute_power(double p) {
 static gboolean update_display(gpointer data) {
   TRANSMITTER *tx = (TRANSMITTER *)data;
   int rc;
-  static int pre_high_swr = 0;
 
   //t_print("update_display: tx id=%d\n",tx->id);
   if (tx->displaying) {
@@ -367,16 +364,47 @@ static gboolean update_display(gpointer data) {
     // taking the values from the Thetis
     // repository.
     //
+
+    fwd_power   = alex_forward_power;
+    rev_power   = alex_reverse_power;
+
     switch (device) {
     default:
-      // This includes SOAPY (where these numbers are not used)
-      constant1 = 3.3;
-      constant2 = 0.09;
-      rconstant2 = 0.09;
-      rev_cal_offset = 3;
-      fwd_cal_offset = 6;
+      //
+      // This is meant to lead to tx->fwd = 0 and tx->rev = 0
+      //
+      constant1 = 1.0;
+      constant2 = 1.0;
+      rconstant2 = 1.0;
+      rev_cal_offset = 0;
+      fwd_cal_offset = 0;
+      fwd_power = 0;
+      rev_power = 0;
       break;
 
+#ifdef USBOZY
+    case DEVICE_OZY:
+      if (filter_board == ALEX) {
+        constant1 = 3.3;
+        constant2 = 0.09;
+        rconstant2 = 0.09;
+        rev_cal_offset = 3;
+        fwd_cal_offset = 6;
+        fwd_power = penny_fp;
+        rev_power = penny_rp;
+      } else {
+        constant1 = 3.3;
+        constant2 = 18.0;
+        rconstant2 = 18.0;
+        rev_cal_offset = 0;
+        fwd_cal_offset = 90;
+        fwd_power = penny_alc;
+        rev_power = 0;
+      }
+      break;
+#endif
+
+    case DEVICE_METIS:
     case DEVICE_HERMES:
     case DEVICE_ANGELIA:
     case NEW_DEVICE_HERMES2:
@@ -430,45 +458,29 @@ static gboolean update_display(gpointer data) {
       break;
     }
 
-    switch (protocol) {
-    case ORIGINAL_PROTOCOL:
-    case NEW_PROTOCOL:
-      fwd_power   = alex_forward_power;
-      rev_power   = alex_reverse_power;
-
-      //
-      // Special hook for HL2s with an incorrectly wound current
-      // sense transformer: Exchange fwd and rev readings
-      //
-      if (device == DEVICE_HERMES_LITE || device == DEVICE_HERMES_LITE2 ||
-          device == NEW_DEVICE_HERMES_LITE || device == NEW_DEVICE_HERMES_LITE2) {
-        if (rev_power > fwd_power) {
-          fwd_power   = alex_reverse_power;
-          rev_power   = alex_forward_power;
-        }
-
+    //
+    // Special hook for HL2s with an incorrectly wound current
+    // sense transformer: Exchange fwd and rev readings
+    //
+    if (device == DEVICE_HERMES_LITE || device == DEVICE_HERMES_LITE2 ||
+        device == NEW_DEVICE_HERMES_LITE || device == NEW_DEVICE_HERMES_LITE2) {
+      if (rev_power > fwd_power) {
+        fwd_power   = alex_reverse_power;
+        rev_power   = alex_forward_power;
       }
-
-      fwd_power = fwd_power - fwd_cal_offset;
-      rev_power = rev_power - rev_cal_offset;
-
-      if (fwd_power < 0) { fwd_power = 0; }
-      if (rev_power < 0) { rev_power = 0; }
-
-      v1 = ((double)fwd_power / 4095.0) * constant1;
-      tx->fwd = (v1 * v1) / constant2;
-
-      v1 = ((double)rev_power / 4095.0) * constant1;
-      tx->rev = (v1 * v1) / rconstant2;
-
-      break;
-
-    case SOAPYSDR_PROTOCOL:
-    default:
-      tx->rev = 0.0;
-      tx->fwd = 0.0;
-      break;
     }
+
+    fwd_power = fwd_power - fwd_cal_offset;
+    rev_power = rev_power - rev_cal_offset;
+
+    if (fwd_power < 0) { fwd_power = 0; }
+
+    if (rev_power < 0) { rev_power = 0; }
+
+    v1 = ((double)fwd_power / 4095.0) * constant1;
+    tx->fwd = (v1 * v1) / constant2;
+    v1 = ((double)rev_power / 4095.0) * constant1;
+    tx->rev = (v1 * v1) / rconstant2;
 
     //
     // compute_power does an interpolation is user-supplied pairs of
@@ -486,13 +498,13 @@ static gboolean update_display(gpointer data) {
     // Take care that no division by zero can happen, since otherwise the moving
     // exponential average cannot survive.
     //
+    //
     if (tx->fwd > 0.25) {
       //
       // SWR means VSWR (voltage based) but we have the forward and
       // reflected power, so correct for that
       //
-
-      double gamma = sqrt(tx->rev/tx->fwd);
+      double gamma = sqrt(tx->rev / tx->fwd);
 
       //
       // this prevents SWR going to infinity, from which the
@@ -515,13 +527,17 @@ static gboolean update_display(gpointer data) {
     //  To be sure that we do not shut down upon an artifact,
     //  it is required high SWR is seen in to subsequent calls.
     //
+    static int pre_high_swr = 0;
+
     if (tx->swr >= tx->swr_alarm) {
       if (pre_high_swr) {
         if (tx->swr_protection && !getTune()) {
           set_drive(0.0);
         }
+
         high_swr_seen = 1;
       }
+
       pre_high_swr = 1;
     } else {
       pre_high_swr = 0;
@@ -539,44 +555,53 @@ static gboolean update_display(gpointer data) {
 
 static void init_analyzer(TRANSMITTER *tx) {
   int flp[] = {0};
-  double keep_time = 0.1;
-  int n_pixout = 1;
-  int spur_elimination_ffts = 1;
-  int data_type = 1;
-  int afft_size = 8192;
-  int window_type = 4;
-  double kaiser_pi = 14.0;
-  int overlap = 2048;
-  int clip = 0;
-  double span_clip_l = 0;
-  double span_clip_h = 0;
-  int pixels = tx->pixels;
-  int stitches = 1;
-  int calibration_data_set = 0;
-  double span_min_freq = 0.0;
-  double span_max_freq = 0.0;
-  int max_w = afft_size + (int) min(keep_time * (double) tx->fps, keep_time * (double) afft_size * (double) tx->fps);
-  overlap = (int)max(0.0, ceil(afft_size - (double)tx->mic_sample_rate / (double)tx->fps));
+  const double keep_time = 0.1;
+  const int n_pixout = 1;
+  const int spur_elimination_ffts = 1;
+  const int data_type = 1;
+  const int window_type = 5;
+  const double kaiser_pi = 14.0;
+  const double fscLin = 0;
+  const double fscHin = 0;
+  const int stitches = 1;
+  const int calibration_data_set = 0;
+  const double span_min_freq = 0.0;
+  const double span_max_freq = 0.0;
+  const int clip = 0;
+
+  int afft_size;
+  int overlap;
+  int pixels;
+
+  pixels = tx->pixels;
+  afft_size = 8192;
+
+  if (tx->iq_output_rate > 100000) { afft_size = 16384; }
+  if (tx->iq_output_rate > 200000) { afft_size = 32768; }
+
+  int max_w = afft_size + (int) min(keep_time * (double) tx->iq_output_rate, keep_time * (double) afft_size * (double) tx->fps);
+  overlap = (int)max(0.0, ceil(afft_size - (double)tx->iq_output_rate / (double)tx->fps));
   t_print("SetAnalyzer id=%d buffer_size=%d overlap=%d pixels=%d\n", tx->id, tx->output_samples, overlap, tx->pixels);
-  SetAnalyzer(tx->id,
-              n_pixout,
-              spur_elimination_ffts, // number of LO frequencies = number of ffts used in elimination
-              data_type,             // 0 for real input data (I only); 1 for complex input data (I & Q)
+
+  SetAnalyzer(tx->id,                // id of the TXA channel
+              n_pixout,              // 1 = "use same data for scope and waterfall"
+              spur_elimination_ffts, // 1 = "no spur elimination"
+              data_type,             // 1 = complex input data (I & Q)
               flp,                   // vector with one elt for each LO frequency, 1 if high-side LO, 0 otherwise
               afft_size,             // size of the fft, i.e., number of input samples
               tx->output_samples,    // number of samples transferred for each OpenBuffer()/CloseBuffer()
-              window_type,           // integer specifying which window function to use
+              window_type,           // 4 = Hamming
               kaiser_pi,             // PiAlpha parameter for Kaiser window
               overlap,               // number of samples each fft (other than the first) is to re-use from the previous
               clip,                  // number of fft output bins to be clipped from EACH side of each sub-span
-              span_clip_l,           // number of bins to clip from low end of entire span
-              span_clip_h,           // number of bins to clip from high end of entire span
+              fscLin,                // number of bins to clip from low end of entire span
+              fscHin,                // number of bins to clip from high end of entire span
               pixels,                // number of pixel values to return.  may be either <= or > number of bins
               stitches,              // number of sub-spans to concatenate to form a complete span
               calibration_data_set,  // identifier of which set of calibration data to use
               span_min_freq,         // frequency at first pixel value8192
               span_max_freq,         // frequency at last pixel value
-              max_w                  //max samples to hold in input ring buffers
+              max_w                  // max samples to hold in input ring buffers
              );
   //
   // This cannot be changed for the TX panel,
@@ -702,7 +727,6 @@ TRANSMITTER *create_transmitter(int id, int width, int height) {
   tx->puresignal = 0;
   tx->feedback = 0;
   tx->auto_on = 0;
-  tx->single_on = 0;
   tx->attenuation = 0;
   tx->ctcss = 11;
   tx->ctcss_enabled = FALSE;
@@ -981,13 +1005,10 @@ static void full_tx_buffer(TRANSMITTER *tx) {
   }
 
   if (cwmode) {
-
     //
     // clear VOX peak level in case is it non-zero.
     //
-
     clear_vox();
-
     //
     // Note that WDSP is not needed, but we still call it (and discard the
     // results) since this  may help in correct slew-up and slew-down
@@ -997,14 +1018,11 @@ static void full_tx_buffer(TRANSMITTER *tx) {
     // signal to generate the RF pulse is that we do not want MicGain
     // and equalizer settings to interfere.
     //
-
     fexchange0(tx->id, tx->mic_input_buffer, tx->iq_output_buffer, &error);
-
     //
     // Construct our CW TX signal in tx->iq_output_buffer for the sole
     // purpose of displaying them in the TX panadapter
     //
-
     dp = tx->iq_output_buffer;
 
     // These are the I/Q samples that describe our CW signal

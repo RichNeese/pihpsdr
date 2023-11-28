@@ -22,20 +22,6 @@ WORKDIR='/tmp'
 
 ################################################################
 #
-# b) Clean up from old builds and old installs
-#
-################################################################
-
-if [[ -f $HOME/Desktop/pihpsdr.desktop ]]; then
-	rm -f $HOME/Desktop/pihpsdr.desktop
-fi
-
-if [[ -f $HOME/.local/share/applications/pihpsdr.desktop ]]; then
-	rm -f $HOME/.local/share/applications/pihpsdr.desktop
-fi
-
-################################################################
-#
 # c) install lots of packages
 # (many of them should already be there)
 #
@@ -92,31 +78,32 @@ apt -y install flex
 apt -y install libxml2-dev
 apt -y install librtlsdr-dev
 
-# ----------------------------------------------
-# Install SOAPYSDR
-# ----------------------------------------------
-apt -y install libsoapysdr-dev 
-apt -y install libsoapysdr0.8
-apt -y install soapysdr-module-all
-
-# ----------------------------------------------------
-# Install libraries necessary for SOAPYSDR ADALM Pluto
-# ----------------------------------------------------
-apt -y install libiio-dev
-
 ################################################################
 #
-# d) download and install WDSP
+# c) download and install SoapySDR core
 #
 ################################################################
-cd $WORKDIR
-yes | rm -rf wdsp
-git clone https://github.com/dl1ycf/wdsp
 
-cd $WORKDIR/wdsp
+cd $THISDIR
+yes | rm -r SoapySDR
+git clone https://github.com/pothosware/SoapySDR.git
+
+cd $THISDIR/SoapySDR
+mkdir build
+cd build
+cmake -DCMAKE_INSTALL_PREFIX=/usr/local ..
 make -j 4
 make install
 ldconfig
+
+################################################################
+#
+# d) download and install libiio
+#    NOTE: libiio has just changed the API and SoapyPlutoSDR
+#          is not yet updated. So compile version 0.25, which
+#          is the last one with the old API
+#
+################################################################
 
 ################################################################
 #
@@ -124,7 +111,7 @@ ldconfig
 #
 ################################################################
 
-cd $WORKDIR
+cd $THISDIR
 yes | rm -rf SoapyPlutoSDR
 git clone https://github.com/pothosware/SoapyPlutoSDR
 
@@ -138,11 +125,71 @@ ldconfig
 
 ################################################################
 #
-# f) cleanup tmp dir builds
+# f) download and install Soapy for RTL sticks
 #
 ################################################################
 
 cd $WORKDIR
 rm -rf wdsp SoapyPlutoSDR
 
-echo " Libs Install Done "
+cd $THISDIR/SoapyRTLSDR
+mkdir build
+cd build
+cmake -DCMAKE_INSTALL_PREFIX=/usr/local ..
+make -j 4
+sudo make install
+sudo ldconfig
+
+################################################################
+#
+# g) create desktop icons, start scripts, etc.  for pihpsdr
+#
+################################################################
+
+rm -f $HOME/Desktop/pihpsdr.desktop
+rm -f $HOME/.local/share/applications/pihpsdr.desktop
+
+cat <<EOT > $TARGET/pihpsdr.sh
+cd $TARGET
+$TARGET/pihpsdr >log 2>&1
+EOT
+chmod +x $TARGET/pihpsdr.sh
+
+cat <<EOT > $TARGET/pihpsdr.desktop
+#!/usr/bin/env xdg-open
+[Desktop Entry]
+Version=1.0
+Type=Application
+Terminal=false
+Name[eb_GB]=piHPSDR
+Exec=$TARGET/pihpsdr.sh
+Icon=$TARGET/hpsdr_icon.png
+Name=piHPSDR
+EOT
+
+cp $TARGET/pihpsdr.desktop $HOME/Desktop
+mkdir -p $HOME/.local/share/applications
+cp $TARGET/pihpsdr.desktop $HOME/.local/share/applications
+
+cp $TARGET/release/pihpsdr/hpsdr.png $TARGET
+cp $TARGET/release/pihpsdr/hpsdr_icon.png $TARGET
+
+################################################################
+#
+# h) default GPIO lines to input + pullup
+#
+################################################################
+
+if test -f "/boot/config.txt"; then
+  if grep -q "gpio=4-13,16-27=ip,pu" /boot/config.txt; then
+    echo "/boot/config.txt already contains gpio setup."
+  else
+    echo "/boot/config.txt does not contain gpio setup - adding it."
+    echo "Please reboot system for this to take effect."
+    cat <<EGPIO | sudo tee -a /boot/config.txt > /dev/null
+[all]
+# setup GPIO for pihpsdr controllers
+gpio=4-13,16-27=ip,pu
+EGPIO
+  fi
+fi

@@ -65,8 +65,6 @@
 
 #include <math.h>
 
-#define NEW_PARSER
-
 // IP stuff below
 #include <sys/socket.h>
 #include <arpa/inet.h> //inet_addr
@@ -83,8 +81,6 @@ gboolean rigctl_debug = FALSE;
 int parse_cmd (void *data);
 
 int cat_control;
-
-extern int enable_tx_equalizer;
 
 typedef struct {GMutex m; } GT_MUTEX;
 
@@ -585,7 +581,6 @@ static gpointer rigctl_cw_thread(gpointer data) {
       if (!mox) {
         CAT_cw_is_active = 0;
         schedule_transmit_specific();
-
         continue;
       }
     }
@@ -654,7 +649,6 @@ static gpointer rigctl_cw_thread(gpointer data) {
   if (CAT_cw_is_active) {
     CAT_cw_is_active = 0;
     schedule_transmit_specific();
-
     g_idle_add(ext_mox_update, GINT_TO_POINTER(0));
   }
 
@@ -4841,14 +4835,14 @@ int parse_cmd(void *data) {
         send_resp(client->fd, reply);
       } else if (command[9] == ';') {
         if (command[2] == '0') {
-          sat_mode = SAT_NONE;
+          radio_set_satmode(SAT_NONE);
         } else if (command[2] == '1') {
           if (command[6] == '0' && command[7] == '0') {
-            sat_mode = SAT_NONE;
+            radio_set_satmode(SAT_NONE);
           } else if (command[6] == '1' && command[7] == '0') {
-            sat_mode = SAT_MODE;
+            radio_set_satmode(SAT_MODE);
           } else if (command[6] == '0' && command[7] == '1') {
-            sat_mode = RSAT_MODE;
+            radio_set_satmode(RSAT_MODE);
           } else {
             implemented = FALSE;
           }

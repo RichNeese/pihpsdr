@@ -44,10 +44,6 @@
 #include "new_menu.h"
 #include "message.h"
 
-static gdouble hz_per_pixel;
-static gdouble filter_left = 0.0;
-static gdouble filter_right = 0.0;
-
 /* Create a new surface of the appropriate size to store our scribbles */
 static gboolean
 tx_panadapter_configure_event_cb (GtkWidget         *widget,
@@ -113,8 +109,10 @@ void tx_panadapter_update(TRANSMITTER *tx) {
     int my_height = gtk_widget_get_allocated_height (tx->panadapter);
     int txvfo = get_tx_vfo();
     int txmode = get_tx_mode();
+    double filter_left = 0.5 * my_width;
+    double filter_right = 0.5 * my_width;
     float *samples = tx->pixel_samples;
-    hz_per_pixel = (double)tx->iq_output_rate / (double)tx->pixels;
+    double hz_per_pixel = (double)tx->iq_output_rate / (double)tx->pixels;
     cairo_t *cr;
     cr = cairo_create (tx->panadapter_surface);
     cairo_set_source_rgba(cr, COLOUR_PAN_BACKGND);
@@ -171,7 +169,6 @@ void tx_panadapter_update(TRANSMITTER *tx) {
     }
 
     double vfofreq = (double)my_width * 0.5;
-
     long long min_display = frequency - half;
     long long max_display = frequency + half;
 
@@ -364,7 +361,6 @@ void tx_panadapter_update(TRANSMITTER *tx) {
         // Power values not available for SoapySDR
         //
         snprintf(text, 64, "FWD %0.1f W", transmitter->fwd);
-
         row += 15;
         cairo_move_to(cr, 10, row);
         cairo_show_text(cr, text);
@@ -411,4 +407,3 @@ void tx_panadapter_init(TRANSMITTER *tx, int width, int height) {
    */
   gtk_widget_set_events (tx->panadapter, gtk_widget_get_events (tx->panadapter) | GDK_BUTTON_PRESS_MASK);
 }
-

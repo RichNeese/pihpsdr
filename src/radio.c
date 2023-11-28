@@ -101,7 +101,7 @@ int TOOLBAR_HEIGHT = 30;     // nowhere changed
 
 int rx_stack_horizontal = 0;
 
-gint controller = NO_CONTROLLER;
+int controller = NO_CONTROLLER;
 
 GtkWidget *fixed;
 static GtkWidget *hide_b;
@@ -115,7 +115,7 @@ static GtkWidget *toolbar;
 // RX and TX calibration
 long long frequency_calibration = 0LL;
 
-gint sat_mode;
+int sat_mode;
 
 int region = REGION_OTHER;
 
@@ -160,9 +160,9 @@ int hl2_audio_codec = 0;
 //
 int anan10E = 0;
 
-int adc0_filter_bypass=0;   // Bypass ADC0 filters on receive
-int adc1_filter_bypass=0;   // Bypass ADC1 filters on receiver  (ANAN-7000/8000/G2)
-int mute_spkr_amp=0;        // Mute audio amplifier in radio    (ANAN-7000, G2)
+int adc0_filter_bypass = 0; // Bypass ADC0 filters on receive
+int adc1_filter_bypass = 0; // Bypass ADC1 filters on receiver  (ANAN-7000/8000/G2)
+int mute_spkr_amp = 0;      // Mute audio amplifier in radio    (ANAN-7000, G2)
 
 int classE = 0;
 
@@ -171,8 +171,8 @@ int tx_out_of_band = 0;
 int alc = TXA_ALC_PK;
 
 int filter_board = ALEX;
-int pa_enabled = PA_ENABLED;
-int pa_power = 0;
+int pa_enabled = 1;
+int pa_power = PA_1W;
 const int pa_power_list[] = {1, 5, 10, 30, 50, 100, 200, 500, 1000};
 double pa_trim[11];
 
@@ -211,13 +211,16 @@ int cw_keyer_hang_time = 500;          // ms
 int cw_keyer_sidetone_frequency = 800; // Hz
 int cw_breakin = 1;                    // 0=disabled 1=enabled
 
+int auto_tune_flag = 0;
+int auto_tune_end = 0;
+
 int vfo_encoder_divisor = 15;
 
 int protocol;
 int device;
 int new_pa_board = 0; // Indicates Rev.24 PA board for HERMES/ANGELIA/ORION
 int ozy_software_version;
-int mercury_software_version;
+int mercury_software_version[2] = {0, 0};
 int penelope_software_version;
 
 int adc0_overload = 0;
@@ -272,7 +275,6 @@ int rx_equalizer[4] = {0, 0, 0, 0};
 
 int pre_emphasize = 0;
 
-int vox_setting = 0;
 int vox_enabled = 0;
 double vox_threshold = 0.001;
 double vox_hang = 250.0;
@@ -299,7 +301,7 @@ double drive_digi_max = 100.0; // maximum drive in DIGU/DIGL
 gboolean display_warnings = TRUE;
 gboolean display_pacurr = TRUE;
 
-gint rx_height;
+int rx_height;
 
 void radio_stop() {
   if (can_transmit) {
@@ -620,7 +622,7 @@ void reconfigure_radio() {
 //
 // used to regularly write props file, currently not active
 //
-static gint save_timer_id;
+static guint save_timer_id;
 static gboolean save_cb(gpointer data) {
   radioSaveState();
   return TRUE;
@@ -1257,16 +1259,22 @@ void start_radio() {
   // Determine number of ADCs in the device
   //
   switch (device) {
-  case DEVICE_METIS: // No support for multiple MERCURY cards on a single ATLAS bus.
-  case DEVICE_OZY:    // No support for multiple MERCURY cards on a single ATLAS bus.
+  case DEVICE_METIS:
+  case DEVICE_OZY:
   case DEVICE_HERMES:
   case DEVICE_HERMES_LITE:
   case DEVICE_HERMES_LITE2:
-  case NEW_DEVICE_ATLAS: // No support for multiple MERCURY cards on a single ATLAS bus.
+  case NEW_DEVICE_ATLAS:
   case NEW_DEVICE_HERMES:
   case NEW_DEVICE_HERMES2:
   case NEW_DEVICE_HERMES_LITE:
   case NEW_DEVICE_HERMES_LITE2:
+    //
+    // If there are two MERCURY cards on the ATLAS bus, this is detected
+    // in old_protocol.c, But, n_adc can keep the value of 1 since the
+    // ADC assignment is fixed in that case (RX1: first mercury card,
+    // RX2: second mercury card).
+    //
     n_adc = 1;
     break;
 
@@ -1288,14 +1296,14 @@ void start_radio() {
   //
   // In most cases, ALEX is the best default choice for the filter board.
   // here we set filter_board to a different default value for some
-  // "special" hardware. The choice made here only applies if the filter_board
-  // is not specified in the props fil
+  // "special" hardware. The choice made here will possibly overwritten
+  // with data from the props file.
   //
 
   if (device == SOAPYSDR_USB_DEVICE) {
     iqswap = 1;
     receivers = 1;
-    filter_board = NONE;
+    filter_board = NO_FILTER_BOARD;
   }
 
   if (device == DEVICE_HERMES_LITE2 || device == NEW_DEVICE_HERMES_LITE2)  {
@@ -1325,7 +1333,9 @@ void start_radio() {
 
   if (have_rx_gain && (protocol == ORIGINAL_PROTOCOL || protocol == NEW_PROTOCOL)) {
     //
-    // This is the setting valid for HERMES_LITE and some other radios such as RADIOBERRY
+    // The "magic values" here are for the AD98656 chip that is used in radios
+    // such as the HermesLite and the RadioBerry. This is a best estimate and
+    // will be overwritten with data from the props file.
     //
     adc[0].min_gain = -12.0;
     adc[0].max_gain = +48.0;
@@ -1452,7 +1462,6 @@ void start_radio() {
   }
 
   schedule_high_priority();
-
 #ifdef SOAPYSDR
 
   if (protocol == SOAPYSDR_PROTOCOL) {
@@ -1482,7 +1491,7 @@ void start_radio() {
   }
 
 #endif
-  g_idle_add(ext_vfo_update, (gpointer)NULL);
+  g_idle_add(ext_vfo_update, NULL);
   gdk_window_set_cursor(gtk_widget_get_window(top_window), gdk_cursor_new(GDK_ARROW));
 #ifdef MIDI
 
@@ -1574,7 +1583,6 @@ void radio_change_receivers(int r) {
 
   if (!radio_is_remote) {
 #endif
-
     schedule_high_priority();
 
     if (protocol == ORIGINAL_PROTOCOL) {
@@ -1775,6 +1783,7 @@ static void rxtx(int state) {
       }
     }
   }
+
   gpio_set_ptt(state);
 }
 
@@ -1816,7 +1825,6 @@ void vox_changed(int state) {
   }
 
   vox = state;
-
   schedule_high_priority();
   schedule_receive_specific();
 }
@@ -2110,7 +2118,6 @@ void calcDriveLevel() {
   //} else {
   //  t_print("%s: Level=%d\n", __FUNCTION__, transmitter->drive_level);
   //}
-
   schedule_high_priority();
 }
 
@@ -2204,6 +2211,19 @@ void setSquelch(RECEIVER *rx) {
   SetRXAAMSQRun(rx->id, am_squelch);
   SetRXAFMSQRun(rx->id, fm_squelch);
   SetRXASSQLRun(rx->id, voice_squelch);
+}
+
+void radio_set_satmode(int mode) {
+#ifdef CLIENT_SERVER
+
+  if (radio_is_remote) {
+    send_sat(client_socket, mode);
+    return;
+  }
+
+#endif
+
+  sat_mode = mode;
 }
 
 void radio_set_rf_gain(RECEIVER *rx) {
@@ -2789,7 +2809,7 @@ int remote_start(void *data) {
   }
 
   reconfigure_radio();
-  g_idle_add(ext_vfo_update, (gpointer)NULL);
+  g_idle_add(ext_vfo_update, NULL);
   gdk_window_set_cursor(gtk_widget_get_window(top_window), gdk_cursor_new(GDK_ARROW));
 
   for (int i = 0; i < receivers; i++) {
@@ -2928,4 +2948,40 @@ void protocol_restart() {
   protocol_stop();
   usleep(200000);
   protocol_run();
+}
+
+gpointer auto_tune_thread(gpointer data) {
+  //
+  // This routine is triggered when an "auto tune" event
+  // occurs, which usually is triggered by an input.
+  //
+  // Start TUNEing and keep TUNEing until the auto_tune_flag
+  // becomes zero. Abort TUNEing if it takes too long
+  //
+  // To avoid race conditions, there are two flags:
+  // auto_tune_flag is set while this thread is running
+  // auto_tune_end  signals that tune can stop
+  //
+  // The thread will not terminate until auto_tune_end is flagged,
+  // but  it may stop tuning before.
+  //
+  int count = 0;
+  g_idle_add(ext_tune_update, GINT_TO_POINTER(1));
+  for (;;) {
+    if (count >= 0) {
+      count++;
+    }
+    usleep(50000);
+    if (auto_tune_end) {
+      g_idle_add(ext_tune_update, GINT_TO_POINTER(0));
+      break;
+    }
+    if (count >= 200) {
+      g_idle_add(ext_tune_update, GINT_TO_POINTER(0));
+      count = -1;
+    }
+  }
+  usleep(50000);       // debouncing
+  auto_tune_flag = 0;
+  return NULL;
 }
