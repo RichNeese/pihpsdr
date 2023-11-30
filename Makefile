@@ -5,13 +5,13 @@
 # which reads AUDIO=YYYY with YYYY=ALSA or YYYY=PULSE.
 #
 #######################################################################################
-GPIO=ON
+GPIO=
 MIDI=ON
 SATURN=ON
 USBOZY=
 SOAPYSDR=
 STEMLAB=
-EXTENDED_NR=
+EXTENDED_NR=ON
 SERVER=
 AUDIO=
 
