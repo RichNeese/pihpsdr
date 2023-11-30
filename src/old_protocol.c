@@ -326,7 +326,7 @@ void old_protocol_stop() {
   // For OZY, metis_start_stop is a no-op so quick return
   //
   if (device == DEVICE_OZY) { return; }
-  
+
   pthread_mutex_lock(&send_ozy_mutex);
   t_print("%s\n", __FUNCTION__);
   metis_start_stop(0);
@@ -1125,6 +1125,8 @@ static void process_control_bytes() {
   int previous_ptt;
   int previous_dot;
   int previous_dash;
+  int data;
+  static GThread *tune_thread_id = NULL;
   unsigned int val;
   //
   // variable used to manage analog inputs. The accumulators
@@ -1166,10 +1168,41 @@ static void process_control_bytes() {
   case 0:
     adc0_overload |= (control_in[1] & 0x01);
 
+    //
+    // Hermes IOx inputs (x=1,2,3,4), used for TxInhibit and AutoTune
+    // This inputs are active if the bit is cleared
+    //
+    if (enable_tx_inhibit) {
+      if (device == DEVICE_ORION2) {
+        data = (control_in[1] >> 2) & 0x01;  // Use IO2 (active=0) on Anan-7000/8000
+      } else {
+        data = (control_in[1] >> 1) & 0x01;  // Use IO1 (active=0) on all other gear
+      }
+      if (!TxInhibit && data == 0) {
+        TxInhibit = 1;
+        g_idle_add(ext_mox_update, GINT_TO_POINTER(0));
+      }
+      if (data == 1) { TxInhibit = 0; }
+    } else {
+      TxInhibit = 0;
+    }
+
+    if (enable_auto_tune) {
+      data = (control_in[1] >> 3) & 0x01;   // Use IO3 (active=0)
+      auto_tune_end=data;
+      if (data == 0 && !auto_tune_flag) {
+        auto_tune_flag = 1;
+        auto_tune_end  = 0;
+        if (tune_thread_id) {
+          g_thread_join(tune_thread_id);
+        }
+        tune_thread_id = g_thread_new("TUNE", auto_tune_thread, NULL);
+      }
+    } else {
+      auto_tune_end = 1;
+    }
+
     if (device != DEVICE_HERMES_LITE2) {
-      //
-      // There we could make use of the "digital user inputs"
-      //
       if (mercury_software_version[0] != control_in[2]) {
         mercury_software_version[0] = control_in[2];
         t_print("  Mercury Software version: %d (0x%0X)\n", mercury_software_version[0], mercury_software_version[0]);

@@ -211,8 +211,12 @@ int cw_keyer_hang_time = 500;          // ms
 int cw_keyer_sidetone_frequency = 800; // Hz
 int cw_breakin = 1;                    // 0=disabled 1=enabled
 
+int enable_auto_tune = 0;
 int auto_tune_flag = 0;
 int auto_tune_end = 0;
+
+int enable_tx_inhibit = 0;
+int TxInhibit = 0;
 
 int vfo_encoder_divisor = 15;
 
@@ -1790,6 +1794,8 @@ static void rxtx(int state) {
 void setMox(int state) {
   if (!can_transmit) { return; }
 
+  if (state && TxInhibit) { return; }
+
   vox_cancel();  // remove time-out
 
   if (mox != state) {
@@ -1820,6 +1826,10 @@ int getMox() {
 }
 
 void vox_changed(int state) {
+  if (!can_transmit) { return; }
+
+  if (state && TxInhibit) { return; }
+
   if (vox != state && !tune && !mox) {
     rxtx(state);
   }
@@ -1831,6 +1841,8 @@ void vox_changed(int state) {
 
 void setTune(int state) {
   if (!can_transmit) { return; }
+
+  if (state && TxInhibit) { return; }
 
   // if state==tune, this function is a no-op
 
@@ -2374,6 +2386,8 @@ void radioRestoreState() {
   if (radio_is_remote) { return; }
 
 #endif
+  GetPropI0("enable_auto_tune",                              enable_auto_tune);
+  GetPropI0("enable_tx_inhibit",                             enable_tx_inhibit);
   GetPropI0("radio_sample_rate",                             radio_sample_rate);
   GetPropI0("diversity_enabled",                             diversity_enabled);
   GetPropF0("diversity_gain",                                div_gain);
@@ -2587,6 +2601,8 @@ void radioSaveState() {
   if (radio_is_remote) { return; }
 
 #endif
+  SetPropI0("enable_auto_tune",                              enable_auto_tune);
+  SetPropI0("enable_tx_inhibit",                             enable_tx_inhibit);
   SetPropI0("radio_sample_rate",                             radio_sample_rate);
   SetPropI0("diversity_enabled",                             diversity_enabled);
   SetPropF0("diversity_gain",                                div_gain);
