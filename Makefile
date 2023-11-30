@@ -36,6 +36,18 @@ AUDIO=
 
 # get the OS Name
 UNAME_S := $(shell uname -s)
+UNAME_M := $(shell uname -m)
+
+ifeq ($(UNAME_S), Darwin)
+	MACAPPDIR=$HOME/Applications
+else
+	PREFIX?=/usr
+	APPSDIR=$(PREFIX)/share/applications
+	APPICONDIR=$(PREFIX)/share/pihpsdr
+	EXECDIR=$(PREFIX)/local/bin
+	ICONSDIR=$(PREFIX)/share/icons/pihpsdr
+
+endif
 
 # Get git commit version and date
 GIT_DATE := $(firstword $(shell git --no-pager show --date=short --format="%ai" --name-only))
@@ -680,6 +692,57 @@ release: $(PROGRAM)
 	cp $(PROGRAM) release/pihpsdr
 	cd release; tar cvf pihpsdr.tar pihpsdr
 	cd release; tar cvf pihpsdr-$(GIT_VERSION).tar pihpsdr
+
+.PHONY: install-deps
+install-deps:
+ifeq ($(UNAME_S), Darwin)
+	zsh ./MacOs/brew.init
+else
+	bash ./LINUX/libinstall.sh
+endif
+
+.PHONY: install-dirs
+install-dirs:
+ifeq ($(UNAME_S), Linux)
+	mkdir -p $(EXECDIR) $(ICONSDIR) $(APPSDIR) 
+endif
+
+.PHONY: install
+install: install-dirs
+ifeq ($(UNAME_S), Linux)
+	install $(PROGRAM) $(EXECDIR)
+	install LINUX/hpsdr.png $(APPICONDIR)
+	install LINUX/hpsdr_icon.png $(ICONSDIR)
+	install LINUX/pihpsdr.desktop $(APPSDIR)
+endif
+
+.PHONY: gpio
+gpio:
+#currently for raspbian only (working to fix on armbian setups)
+ifeq ($(UNAME_S), Linux)
+	if test -f "/boot/config.txt"; then
+		if grep -q "gpio=4-13,16-27=ip,pu" /boot/config.txt; then
+			echo "/boot/config.txt already contains gpio setup."
+		else
+			echo "/boot/config.txt does not contain gpio setup - adding it."
+			echo "Please reboot system for this to take effect."
+			cat <<EGPIO | sudo tee -a /boot/config.txt > /dev/null
+			[all]
+			# setup GPIO for pihpsdr controllers
+			gpio=4-13,16-27=ip,pu
+			EGPIO
+		endif
+	endif
+endif
+
+.PHONY: uninstall
+uninstall:
+ifeq ($(UNAME_S), Linux)
+	rm $(EXECDIR)/pihpsdr
+	rm $(APPSDIR)/pihpsdr.desktop
+	rm -rf $(ICONSDIR)
+endif
+
 
 #############################################################################
 #
