@@ -46,7 +46,6 @@ else
 	APPICONDIR=$(PREFIX)/share/pihpsdr
 	EXECDIR=$(PREFIX)/local/bin
 	ICONSDIR=$(PREFIX)/share/icons/pihpsdr
-
 endif
 
 # Get git commit version and date
