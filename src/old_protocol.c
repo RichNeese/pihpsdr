@@ -1144,6 +1144,13 @@ static void process_control_bytes() {
   previous_dot = radio_dot;
   previous_dash = radio_dash;
 
+  //
+  // Note HL2 I/O board
+  // If bit 7 of control_in[0] is set, then
+  // control_in[1:4] contain four bytes of I2C data from the I/O board
+  // which serves various functions.
+  // This is not (yet) implemented in piHPSDR
+  //
   radio_ptt  = (control_in[0]     ) & 0x01;
   radio_dash = (control_in[0] >> 1) & 0x01;
   radio_dot  = (control_in[0] >> 2) & 0x01;
@@ -1676,10 +1683,25 @@ void old_protocol_iq_samples(int isample, int qsample, int side) {
       TXRINGBUF[iptr++] = side;
     }
 
-    TXRINGBUF[iptr++] = isample >> 8;
-    TXRINGBUF[iptr++] = isample;
-    TXRINGBUF[iptr++] = qsample >> 8;
-    TXRINGBUF[iptr++] = qsample;
+    if (device == DEVICE_HERMES_LITE2) {
+      //
+      // The "CWX" method in the HL2 firmware behaves erroneously
+      // if the CW input from the KEY/PTT jack is activated.
+      // To make piHPSDR immune to this problem, the least significant
+      // bit of the I (and Q) samples are cleared.
+      // The resolution of the IQ samples is thus reduced from 16 to 15 bits,
+      // but since the HL2 DAC is 12-bit this is no problem.
+      //
+      TXRINGBUF[iptr++] = isample >> 8;
+      TXRINGBUF[iptr++] = isample & 0xFE;
+      TXRINGBUF[iptr++] = qsample >> 8;
+      TXRINGBUF[iptr++] = qsample & 0xFE;
+    } else {
+      TXRINGBUF[iptr++] = isample >> 8;
+      TXRINGBUF[iptr++] = isample;
+      TXRINGBUF[iptr++] = qsample >> 8;
+      TXRINGBUF[iptr++] = qsample;
+    }
     txring_count++;
 
     if (txring_count >= 126) {
@@ -2017,6 +2039,12 @@ void ozy_send_buffer() {
     // end of "C0=0" packet
   } else {
     //
+    // Note HL2 I/O board:
+    // If there is a HermesLite-II I/O board and i2c data to be
+    // sent, then we need an additional packet with
+    // C0 = x111 10y0b where the MOX bit is *not* set.
+    // This is not (yet) implemented in piHPSDR.
+    //
     // metis_offset !=8: send the other C&C packets in round-robin
     // RX frequency commands are repeated for each RX
     output_buffer[C1] = 0x00;
@@ -2211,7 +2239,8 @@ void ozy_send_buffer() {
           // If have_rx_gain, the "TX attenuation range" is extended from
           // -29 to +31 which is then mapped to 60 ... 0
           //
-          rxgain = 31 - transmitter->attenuation;
+          if (pa_enabled && !txband->disablePA) { rxgain = 0; }
+          if (transmitter->puresignal) { rxgain = 31 - transmitter->attenuation; }
         }
 
         if (rxgain <  0) { rxgain = 0; }
@@ -2220,10 +2249,17 @@ void ozy_send_buffer() {
 
         output_buffer[C4] = 0x40 | rxgain;
       } else {
+        //
+        // Standard HPSDR ADC0 attenuator
+        //
+        output_buffer[C4] = 0x20 | (adc[0].attenuation & 0x1F);
         if (isTransmitting()) {
-          output_buffer[C4] = 0x20 | (transmitter->attenuation & 0x1F);
-        } else {
-          output_buffer[C4] = 0x20 | (adc[0].attenuation & 0x1F);
+          if (pa_enabled && !txband->disablePA) {
+            output_buffer[C4] = 0x3F;
+          }
+          if (transmitter->puresignal) {
+            output_buffer[C4] = 0x20 | (transmitter->attenuation & 0x1F);
+          }
         }
       }
 
@@ -2234,20 +2270,18 @@ void ozy_send_buffer() {
       output_buffer[C0] = 0x16;
 
       if (n_adc == 2) {
-        // must set bit 5 ("Att enable") all the time
-        // upon transmitting, use high attenuation, since this is
-        // the best thing you can do when using DIVERSITY to protect
-        // the second ADC from strong signals from the auxiliary antenna.
-        // (ANAN-7000 firmware does this automatically).
-        if (isTransmitting()) {
-          output_buffer[C1] = 0x3F;
+        //
+        // Setting of the ADC1 step attenuator
+        // If diversity is enabled, use RX1 att value for RX2
+        // Note bit5 must *always be set, otherwise the attenuation is zero.
+        //
+        if (diversity_enabled) {
+          output_buffer[C1] = 0x20 | (adc[0].attenuation & 0x1F);
         } else {
-          // if diversity is enabled, use RX1 att value for RX2
-          if (diversity_enabled) {
-            output_buffer[C1] = 0x20 | (adc[0].attenuation & 0x1F);
-          } else {
-            output_buffer[C1] = 0x20 | (adc[1].attenuation & 0x1F);
-          }
+          output_buffer[C1] = 0x20 | (adc[1].attenuation & 0x1F);
+        }
+        if (isTransmitting() && pa_enabled && !txband->disablePA) {
+          output_buffer[C1] = 0x3F;
         }
       }
 
@@ -2281,9 +2315,14 @@ void ozy_send_buffer() {
         output_buffer[C1] |= ((receiver[PS_RX_FEEDBACK]->adc & 0x03) << (2 * rxfdbkchan));
       }
 
+      //
+      // Setting of the ADC0 step attenuator while transmitting
+      //
       if (device == DEVICE_HERMES_LITE2) {
         // bit7: enable TX att, bit6: enable 6-bit value, bit5:0 value
-        int rxgain = 31 - transmitter->attenuation;
+        int rxgain;
+        if (pa_enabled && !txband->disablePA)  { rxgain = 0; }
+        if (transmitter->puresignal) { rxgain = 31 - transmitter->attenuation; }
 
         if (rxgain <  0) { rxgain = 0; }
 
@@ -2291,7 +2330,12 @@ void ozy_send_buffer() {
 
         output_buffer[C3] = 0xC0 | rxgain;
       } else {
-        output_buffer[C3] = transmitter->attenuation & 0x1F; // Step attenuator of first ADC, value used when TXing
+        if (pa_enabled && !txband->disablePA)  {
+          output_buffer[C3] = 0x1F;
+        }
+        if (transmitter->puresignal) {
+          output_buffer[C3] = transmitter->attenuation & 0x1F;
+        }
       }
 
       command = 7;
