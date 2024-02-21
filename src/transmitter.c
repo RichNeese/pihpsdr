@@ -43,6 +43,7 @@
 #include "transmitter.h"
 #include "new_protocol.h"
 #include "old_protocol.h"
+#include "ps_menu.h"
 #ifdef SOAPYSDR
   #include "soapy_protocol.h"
 #endif
@@ -112,7 +113,11 @@ static gboolean close_cb() {
   return TRUE;
 }
 
-static int update_out_of_band(gpointer data) {
+static int clear_out_of_band_warning(gpointer data) {
+  //
+  // One-shot timer for clearing the "Out of band" message
+  // in the VFO bar
+  //
   TRANSMITTER *tx = (TRANSMITTER *)data;
   tx->out_of_band = 0;
   g_idle_add(ext_vfo_update, NULL);
@@ -120,9 +125,14 @@ static int update_out_of_band(gpointer data) {
 }
 
 void transmitter_set_out_of_band(TRANSMITTER *tx) {
+  //
+  // Print "Out of band" warning message in the VFO bar
+  // and clear it after 1 second.
+  //
   tx->out_of_band = 1;
   g_idle_add(ext_vfo_update, NULL);
-  tx->out_of_band_timer_id = gdk_threads_add_timeout_full(G_PRIORITY_HIGH_IDLE, 1000, update_out_of_band, tx, NULL);
+  tx->out_of_band_timer_id = gdk_threads_add_timeout_full(G_PRIORITY_HIGH_IDLE, 1000,
+                           clear_out_of_band_warning, tx, NULL);
 }
 
 void transmitter_set_am_carrier_level(TRANSMITTER *tx) {
@@ -175,8 +185,6 @@ void reconfigure_transmitter(TRANSMITTER *tx, int width, int height) {
 }
 
 void transmitterSaveState(const TRANSMITTER *tx) {
-  char name[128];
-  char value[128];
   t_print("%s: TX=%d\n", __FUNCTION__, tx->id);
   SetPropI1("transmitter.%d.low_latency",       tx->id,               tx->low_latency);
   SetPropI1("transmitter.%d.fft_size",          tx->id,               tx->fft_size);
@@ -192,6 +200,15 @@ void transmitterSaveState(const TRANSMITTER *tx) {
   SetPropI1("transmitter.%d.puresignal",        tx->id,               tx->puresignal);
   SetPropI1("transmitter.%d.auto_on",           tx->id,               tx->auto_on);
   SetPropI1("transmitter.%d.feedback",          tx->id,               tx->feedback);
+  SetPropF1("transmitter.%d.ps_ampdelay",       tx->id,               tx->ps_ampdelay);
+  SetPropI1("transmitter.%d.ps_ints",           tx->id,               tx->ps_ints);
+  SetPropI1("transmitter.%d.ps_spi",            tx->id,               tx->ps_spi);
+  SetPropI1("transmitter.%d.ps_stbl",           tx->id,               tx->ps_stbl);
+  SetPropI1("transmitter.%d.ps_map",            tx->id,               tx->ps_map);
+  SetPropI1("transmitter.%d.ps_pin",            tx->id,               tx->ps_pin);
+  SetPropF1("transmitter.%d.ps_ptol",           tx->id,               tx->ps_ptol);
+  SetPropF1("transmitter.%d.ps_moxdelay",       tx->id,               tx->ps_moxdelay);
+  SetPropF1("transmitter.%d.ps_loopdelay",      tx->id,               tx->ps_loopdelay);
   SetPropI1("transmitter.%d.attenuation",       tx->id,               tx->attenuation);
   SetPropI1("transmitter.%d.ctcss_enabled",     tx->id,               tx->ctcss_enabled);
   SetPropI1("transmitter.%d.ctcss",             tx->id,               tx->ctcss);
@@ -214,8 +231,6 @@ void transmitterSaveState(const TRANSMITTER *tx) {
 }
 
 static void transmitterRestoreState(TRANSMITTER *tx) {
-  char name[128];
-  char *value;
   t_print("%s: id=%d\n", __FUNCTION__, tx->id);
   GetPropI1("transmitter.%d.low_latency",       tx->id,               tx->low_latency);
   GetPropI1("transmitter.%d.fft_size",          tx->id,               tx->fft_size);
@@ -231,6 +246,15 @@ static void transmitterRestoreState(TRANSMITTER *tx) {
   GetPropI1("transmitter.%d.puresignal",        tx->id,               tx->puresignal);
   GetPropI1("transmitter.%d.auto_on",           tx->id,               tx->auto_on);
   GetPropI1("transmitter.%d.feedback",          tx->id,               tx->feedback);
+  GetPropF1("transmitter.%d.ps_ampdelay",       tx->id,               tx->ps_ampdelay);
+  GetPropI1("transmitter.%d.ps_ints",           tx->id,               tx->ps_ints);
+  GetPropI1("transmitter.%d.ps_spi",            tx->id,               tx->ps_spi);
+  GetPropI1("transmitter.%d.ps_stbl",           tx->id,               tx->ps_stbl);
+  GetPropI1("transmitter.%d.ps_map",            tx->id,               tx->ps_map);
+  GetPropI1("transmitter.%d.ps_pin",            tx->id,               tx->ps_pin);
+  GetPropF1("transmitter.%d.ps_ptol",           tx->id,               tx->ps_ptol);
+  GetPropF1("transmitter.%d.ps_moxdelay",       tx->id,               tx->ps_moxdelay);
+  GetPropF1("transmitter.%d.ps_loopdelay",      tx->id,               tx->ps_loopdelay);
   GetPropI1("transmitter.%d.attenuation",       tx->id,               tx->attenuation);
   GetPropI1("transmitter.%d.ctcss_enabled",     tx->id,               tx->ctcss_enabled);
   GetPropI1("transmitter.%d.ctcss",             tx->id,               tx->ctcss);
@@ -358,13 +382,11 @@ static gboolean update_display(gpointer data) {
     double v1;
     rc = get_tx_vfo();
     int is6m = (vfo[rc].band == band6);
-
     //
     // Updated values of constant1/2 throughout,
     // taking the values from the Thetis
     // repository.
     //
-
     fwd_power   = alex_forward_power;
     rev_power   = alex_reverse_power;
 
@@ -381,8 +403,8 @@ static gboolean update_display(gpointer data) {
       fwd_power = 0;
       rev_power = 0;
       break;
-
 #ifdef USBOZY
+
     case DEVICE_OZY:
       if (filter_board == ALEX) {
         constant1 = 3.3;
@@ -401,6 +423,7 @@ static gboolean update_display(gpointer data) {
         fwd_power = penny_alc;
         rev_power = 0;
       }
+
       break;
 #endif
 
@@ -485,7 +508,6 @@ static gboolean update_display(gpointer data) {
     tx->fwd = (v1 * v1) / constant2;
     v1 = ((double)rev_power / 4095.0) * constant1;
     tx->rev = (v1 * v1) / rconstant2;
-
     //
     // compute_power does an interpolation is user-supplied pairs of
     // data points (measured by radio, measured by external watt meter)
@@ -572,21 +594,20 @@ static void init_analyzer(TRANSMITTER *tx) {
   const double span_min_freq = 0.0;
   const double span_max_freq = 0.0;
   const int clip = 0;
-
   int afft_size;
   int overlap;
   int pixels;
-
   pixels = tx->pixels;
   afft_size = 8192;
 
   if (tx->iq_output_rate > 100000) { afft_size = 16384; }
+
   if (tx->iq_output_rate > 200000) { afft_size = 32768; }
 
-  int max_w = afft_size + (int) min(keep_time * (double) tx->iq_output_rate, keep_time * (double) afft_size * (double) tx->fps);
+  int max_w = afft_size + (int) min(keep_time * (double) tx->iq_output_rate,
+                                    keep_time * (double) afft_size * (double) tx->fps);
   overlap = (int)max(0.0, ceil(afft_size - (double)tx->iq_output_rate / (double)tx->fps));
   t_print("SetAnalyzer id=%d buffer_size=%d overlap=%d pixels=%d\n", tx->id, tx->output_samples, overlap, tx->pixels);
-
   SetAnalyzer(tx->id,                // id of the TXA channel
               n_pixout,              // 1 = "use same data for scope and waterfall"
               spur_elimination_ffts, // 1 = "no spur elimination"
@@ -729,6 +750,18 @@ TRANSMITTER *create_transmitter(int id, int width, int height) {
   tx->out_of_band = 0;
   tx->twotone = 0;
   tx->puresignal = 0;
+  //
+  // PS 2.0 default parameters
+  //
+  tx->ps_ampdelay = 150;      // ATTENTION: this value is in nano-seconds
+  tx->ps_ints = 16;
+  tx->ps_spi = 256;           // ints=16/spi=256 corresponds to "TINT=0.5 dB"
+  tx->ps_stbl = 0;            // "Stbl" un-checked
+  tx->ps_map = 1;             // "Map" checked
+  tx->ps_pin = 1;             // "Pin" checked
+  tx->ps_ptol = 0.8;          // "Relax Tolerance" un-checked
+  tx->ps_moxdelay = 0.2;      // "MOX Wait" 0.2 sec
+  tx->ps_loopdelay = 0.0;     // "CAL Wait" 0.0 sec
   tx->feedback = 0;
   tx->auto_on = 0;
   tx->attenuation = 0;
@@ -1587,6 +1620,16 @@ void tx_set_ps(TRANSMITTER *tx, int state) {
     // streams flowing, then start PS engine
     usleep(100000);
     SetPSControl(tx->id, 0, 0, 1, 0);
+    // Set PS 2.0 parameters
+    SetPSIntsAndSpi(transmitter->id, transmitter->ps_ints, transmitter->ps_spi);
+    SetPSStabilize(transmitter->id, transmitter->ps_stbl);
+    SetPSMapMode(transmitter->id, transmitter->ps_map);
+    SetPSPinMode(transmitter->id, transmitter->ps_pin);
+    SetPSPtol(transmitter->id, transmitter->ps_ptol);
+    SetPSMoxDelay(transmitter->id, transmitter->ps_moxdelay);
+    // Note that the TXDelay is internally stored in NanoSeconds
+    SetPSTXDelay(transmitter->id, 1E-9 * transmitter->ps_ampdelay);
+    SetPSLoopDelay(transmitter->id, transmitter->ps_loopdelay);
   }
 
   // update screen
@@ -1594,28 +1637,39 @@ void tx_set_ps(TRANSMITTER *tx, int state) {
 }
 
 void tx_set_twotone(TRANSMITTER *tx, int state) {
-  tx->twotone = state;
+  static guint timer = 0;
 
+  if (state == tx->twotone) { return; }
+
+  tx->twotone = state;
+  //
+  // During a two-tone experiment, call a function periodically
+  // (every 100 msec) that calibrates the TX attenuation value
+  // if PureSignal is running with AutoCalibration. The timer will
+  // automatically be removed
+  //
   if (state) {
     // set frequencies and levels
     switch (get_tx_mode()) {
     case modeCWL:
     case modeLSB:
     case modeDIGL:
-      SetTXAPostGenTTFreq(tx->id, -900.0, -1700.0);
+      SetTXAPostGenTTFreq(tx->id, -700.0, -1900.0);
       break;
 
     default:
-      SetTXAPostGenTTFreq(tx->id, 900.0, 1700.0);
+      SetTXAPostGenTTFreq(tx->id, 700.0, 1900.0);
       break;
     }
 
     SetTXAPostGenTTMag (tx->id, 0.49999, 0.49999);
     SetTXAPostGenMode(tx->id, 1);
     SetTXAPostGenRun(tx->id, 1);
+    if (timer == 0) {
+      timer = g_timeout_add((guint) 100, ps_calibration_timer, &timer);
+    }
   } else {
     SetTXAPostGenRun(tx->id, 0);
-
     //
     // These radios show "tails" of the TX signal after a TX/RX transition,
     // so wait after the TwoTone signal has been removed, before

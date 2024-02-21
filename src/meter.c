@@ -113,7 +113,8 @@ void meter_update(RECEIVER *rx, int meter_type, double value, double alc, double
   int  units = 2;          // 0: xxx mW, 1: xx.y W, 2: xxx W
   double interval = 10.0;  // 1/10 of full reflection
   cairo_t *cr = cairo_create (meter_surface);
-  const BAND *band = band_get_current_band();
+  int txvfo = get_tx_vfo();
+  const BAND *band = band_get_band(vfo[txvfo].band);
 
   //
   // First, do all the work that  does not depend on whether the
@@ -280,11 +281,17 @@ void meter_update(RECEIVER *rx, int meter_type, double value, double alc, double
 
       cairo_set_line_width(cr, PAN_LINE_THICK);
       cairo_set_source_rgba(cr, COLOUR_METER);
-      angle = fmax(-127.0, max_rxlvl) + 127.0 + offset;
 
-      // if frequency > 30MHz then -93 is S9
       if (vfo[active_receiver->id].frequency > 30000000LL) {
-        angle = angle + 20;
+        //
+        // VHF/UHF (beyond 30 Mhz): -147 dBm is S0
+        //
+        angle = fmax(-147.0, max_rxlvl) + 147.0 + offset;
+      } else {
+        //
+        // HF (up to 30 Mhz): -127 dBm is S0
+        //
+        angle = fmax(-127.0, max_rxlvl) + 127.0 + offset;
       }
 
       radians = angle * M_PI / 180.0;

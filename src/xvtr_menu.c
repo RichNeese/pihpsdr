@@ -38,30 +38,33 @@ static GtkWidget *min_frequency[BANDS + XVTRS];
 static GtkWidget *max_frequency[BANDS + XVTRS];
 static GtkWidget *lo_frequency[BANDS + XVTRS];
 static GtkWidget *lo_error[BANDS + XVTRS];
+static GtkWidget *gain[BANDS + XVTRS];
 static GtkWidget *disable_pa[BANDS + XVTRS];
 
 static void save_xvtr () {
-  const char *minf;
-  const char *maxf;
-  const char *lof;
-  const char *loerr;
-
   for (int i = BANDS; i < BANDS + XVTRS; i++) {
+    const char *txt;
+    char f[16];
     BAND *xvtr = band_get_band(i);
     BANDSTACK *bandstack = xvtr->bandstack;
-    const char *t = gtk_entry_get_text(GTK_ENTRY(title[i]));
-    STRLCPY(xvtr->title, t, sizeof(xvtr->title));
+    txt = gtk_entry_get_text(GTK_ENTRY(title[i]));
+    STRLCPY(xvtr->title, txt, sizeof(xvtr->title));
 
-    if (strlen(t) != 0) {
-      minf = gtk_entry_get_text(GTK_ENTRY(min_frequency[i]));
-      xvtr->frequencyMin = (long long)(atof(minf) * 1000000.0);
-      maxf = gtk_entry_get_text(GTK_ENTRY(max_frequency[i]));
-      xvtr->frequencyMax = (long long)(atof(maxf) * 1000000.0);
-      lof = gtk_entry_get_text(GTK_ENTRY(lo_frequency[i]));
-      xvtr->frequencyLO = (long long)(atof(lof) * 1000000.0);
-      loerr = gtk_entry_get_text(GTK_ENTRY(lo_error[i]));
-      xvtr->errorLO = atoll(loerr);
-      xvtr->disablePA = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(disable_pa[i]));
+    if (strlen(txt) != 0) {
+      txt = gtk_entry_get_text(GTK_ENTRY(min_frequency[i]));
+      xvtr->frequencyMin = (long long)(atof(txt) * 1000000.0);
+      txt = gtk_entry_get_text(GTK_ENTRY(max_frequency[i]));
+      xvtr->frequencyMax = (long long)(atof(txt) * 1000000.0);
+      txt = gtk_entry_get_text(GTK_ENTRY(lo_frequency[i]));
+      xvtr->frequencyLO = (long long)(atof(txt) * 1000000.0);
+      txt = gtk_entry_get_text(GTK_ENTRY(lo_error[i]));
+      xvtr->errorLO = atoll(txt);
+      txt = gtk_entry_get_text(GTK_ENTRY(gain[i]));
+      xvtr->gain = atoi(txt);
+
+      if (protocol == ORIGINAL_PROTOCOL || protocol == NEW_PROTOCOL) {
+        xvtr->disablePA = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(disable_pa[i]));
+      }
 
       //
       // Patch up the frequencies:
@@ -84,18 +87,44 @@ static void save_xvtr () {
         //t_print("XVTR band %s MaxFrequency changed to %lld\n", t, xvtr->frequencyMax);
       }
 
+      //
+      // Initialize all bandstack entries where the frequency is not inside the
+      // transverter band
+      //
       for (int b = 0; b < bandstack->entries; b++) {
         BANDSTACK_ENTRY *entry = &bandstack->entry[b];
-        entry->frequency = xvtr->frequencyMin + ((xvtr->frequencyMax - xvtr->frequencyMin) / 2);
-        entry->mode = modeUSB;
-        entry->filter = filterF6;
+
+        if (entry->frequency < xvtr->frequencyMin || entry->frequency > xvtr->frequencyMax) {
+          entry->frequency = xvtr->frequencyMin + ((xvtr->frequencyMax - xvtr->frequencyMin) / 2);
+          entry->mode = modeUSB;
+          entry->filter = filterF6;
+        }
       }
     } else {
       xvtr->frequencyMin = 0;
       xvtr->frequencyMax = 0;
       xvtr->frequencyLO = 0;
       xvtr->errorLO = 0;
-      xvtr->disablePA = 0;
+      xvtr->disablePA = 1;
+    }
+
+    //
+    // Update all the text fields
+    //
+    gtk_entry_set_text(GTK_ENTRY(title[i]), xvtr->title);
+    snprintf(f, 16, "%5.3f", (double)xvtr->frequencyMin / 1000000.0);
+    gtk_entry_set_text(GTK_ENTRY(min_frequency[i]), f);
+    snprintf(f, 16, "%5.3f", (double)xvtr->frequencyMax / 1000000.0);
+    gtk_entry_set_text(GTK_ENTRY(max_frequency[i]), f);
+    snprintf(f, 16, "%5.3f", (double)xvtr->frequencyLO / 1000000.0);
+    gtk_entry_set_text(GTK_ENTRY(lo_frequency[i]), f);
+    snprintf(f, 16, "%lld", xvtr->errorLO);
+    gtk_entry_set_text(GTK_ENTRY(lo_error[i]), f);
+    snprintf(f, 16, "%d", xvtr->gain);
+    gtk_entry_set_text(GTK_ENTRY(gain[i]), f);
+
+    if (protocol == ORIGINAL_PROTOCOL || protocol == NEW_PROTOCOL) {
+      gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(disable_pa[i]), xvtr->disablePA);
     }
   }
 
@@ -119,8 +148,13 @@ static void cleanup() {
   }
 }
 
-static gboolean close_cb () {
+static gboolean close_cb() {
   cleanup();
+  return TRUE;
+}
+
+static gboolean update_cb() {
+  save_xvtr();
   return TRUE;
 }
 
@@ -144,24 +178,33 @@ void xvtr_menu(GtkWidget *parent) {
   gtk_widget_set_name(close_b, "close_button");
   g_signal_connect (close_b, "button-press-event", G_CALLBACK(close_cb), NULL);
   gtk_grid_attach(GTK_GRID(grid), close_b, 0, 0, 1, 1);
+  GtkWidget *update_b = gtk_button_new_with_label("Update");
+  g_signal_connect (update_b, "button-press-event", G_CALLBACK(update_cb), NULL);
+  gtk_grid_attach(GTK_GRID(grid), update_b, 1, 0, 1, 1);
   GtkWidget *label = gtk_label_new("Title");
   gtk_widget_set_name(label, "boldlabel");
   gtk_grid_attach(GTK_GRID(grid), label, 0, 1, 1, 1);
-  label = gtk_label_new("Min Freq(MHz)");
+  label = gtk_label_new("Min Frq(MHz)");
   gtk_widget_set_name(label, "boldlabel");
   gtk_grid_attach(GTK_GRID(grid), label, 1, 1, 1, 1);
-  label = gtk_label_new("Max Freq(MHz)");
+  label = gtk_label_new("Max Frq(MHz)");
   gtk_widget_set_name(label, "boldlabel");
   gtk_grid_attach(GTK_GRID(grid), label, 2, 1, 1, 1);
-  label = gtk_label_new("LO Freq(MHz)");
+  label = gtk_label_new("LO Frq(MHz)");
   gtk_widget_set_name(label, "boldlabel");
   gtk_grid_attach(GTK_GRID(grid), label, 3, 1, 1, 1);
   label = gtk_label_new("LO Err(Hz)");
   gtk_widget_set_name(label, "boldlabel");
   gtk_grid_attach(GTK_GRID(grid), label, 4, 1, 1, 1);
-  label = gtk_label_new("Disable PA");
+  label = gtk_label_new("Gain (dB)");
   gtk_widget_set_name(label, "boldlabel");
-  gtk_grid_attach(GTK_GRID(grid), label, 7, 1, 1, 1);
+  gtk_grid_attach(GTK_GRID(grid), label, 5, 1, 1, 1);
+
+  if (protocol == ORIGINAL_PROTOCOL || protocol == NEW_PROTOCOL) {
+    label = gtk_label_new("Disable PA");
+    gtk_widget_set_name(label, "boldlabel");
+    gtk_grid_attach(GTK_GRID(grid), label, 6, 1, 1, 1);
+  }
 
   //
   // Note  no signal connect for the text fields:
@@ -195,15 +238,22 @@ void xvtr_menu(GtkWidget *parent) {
     snprintf(f, 16, "%lld", xvtr->errorLO);
     gtk_entry_set_text(GTK_ENTRY(lo_error[i]), f);
     gtk_grid_attach(GTK_GRID(grid), lo_error[i], 4, i + 2, 1, 1);
-    disable_pa[i] = gtk_check_button_new();
-    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(disable_pa[i]), xvtr->disablePA);
-    gtk_grid_attach(GTK_GRID(grid), disable_pa[i], 7, i + 2, 1, 1);
-    gtk_widget_set_halign(disable_pa[i], GTK_ALIGN_CENTER);
-    g_signal_connect(disable_pa[i], "toggled", G_CALLBACK(pa_disable_cb), GINT_TO_POINTER(i));
+    gain[i] = gtk_entry_new();
+    gtk_entry_set_width_chars(GTK_ENTRY(gain[i]), 3);
+    snprintf(f, 16, "%d", xvtr->gain);
+    gtk_entry_set_text(GTK_ENTRY(gain[i]), f);
+    gtk_grid_attach(GTK_GRID(grid), gain[i], 5, i + 2, 1, 1);
+
+    if (protocol == ORIGINAL_PROTOCOL || protocol == NEW_PROTOCOL) {
+      disable_pa[i] = gtk_check_button_new();
+      gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(disable_pa[i]), xvtr->disablePA);
+      gtk_grid_attach(GTK_GRID(grid), disable_pa[i], 6, i + 2, 1, 1);
+      gtk_widget_set_halign(disable_pa[i], GTK_ALIGN_CENTER);
+      g_signal_connect(disable_pa[i], "toggled", G_CALLBACK(pa_disable_cb), GINT_TO_POINTER(i));
+    }
   }
 
   gtk_container_add(GTK_CONTAINER(content), grid);
   sub_menu = dialog;
   gtk_widget_show_all(dialog);
 }
-

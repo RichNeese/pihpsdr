@@ -166,7 +166,7 @@ int mute_spkr_amp = 0;      // Mute audio amplifier in radio    (ANAN-7000, G2)
 
 int classE = 0;
 
-int tx_out_of_band = 0;
+int tx_out_of_band_allowed = 0;
 
 int alc = TXA_ALC_PK;
 
@@ -1176,9 +1176,9 @@ void start_radio() {
 
   case SOAPYSDR_PROTOCOL:
     STRLCPY(p, "SoapySDR", 32);
-    snprintf(version, 32, "%s v%d.%d.%d",
+    snprintf(version, 32, "%4.20s v%d.%d.%d",
              radio->info.soapy.driver_key,
-             radio->software_version / 100,
+             (radio->software_version % 10000)/ 100,
              (radio->software_version % 100) / 10,
              radio->software_version % 10);
     break;
@@ -1806,6 +1806,7 @@ void setMox(int state) {
   if (tune) {
     setTune(0);
   }
+
   vox_cancel();  // remove time-out
 
   //
@@ -1841,6 +1842,7 @@ void setVox(int state) {
   if (!can_transmit) { return; }
 
   if (mox || tune) { return; }
+
   if (state && TxInhibit) { return; }
 
   if (vox != state) {
@@ -2248,7 +2250,6 @@ void radio_set_satmode(int mode) {
   }
 
 #endif
-
   sat_mode = mode;
 }
 
@@ -2282,7 +2283,7 @@ void set_alex_antennas() {
   // This function also takes care of updating the PA dis/enable
   // status for P2.
   //
-  BAND *band;
+  const BAND *band;
 
   if (protocol == ORIGINAL_PROTOCOL || protocol == NEW_PROTOCOL) {
     band = band_get_band(vfo[VFO_A].band);
@@ -2361,8 +2362,6 @@ void radio_set_split(int val) {
 }
 
 void radioRestoreState() {
-  char name[128];
-  char *value;
   t_print("radioRestoreState: %s\n", property_path);
   g_mutex_lock(&property_mutex);
   loadProperties(property_path);
@@ -2417,7 +2416,7 @@ void radioRestoreState() {
   GetPropI0("atlas_janus",                                   atlas_janus);
   GetPropI0("hl2_audio_codec",                               hl2_audio_codec);
   GetPropI0("anan10E",                                       anan10E);
-  GetPropI0("tx_out_of_band",                                tx_out_of_band);
+  GetPropI0("tx_out_of_band",                                tx_out_of_band_allowed);
   GetPropI0("filter_board",                                  filter_board);
   GetPropI0("pa_enabled",                                    pa_enabled);
   GetPropI0("pa_power",                                      pa_power);
@@ -2563,8 +2562,6 @@ void radioRestoreState() {
 }
 
 void radioSaveState() {
-  char value[128];
-  char name[128];
   t_print("radioSaveState: %s\n", property_path);
   g_mutex_lock(&property_mutex);
   clearProperties();
@@ -2632,7 +2629,7 @@ void radioSaveState() {
   SetPropI0("atlas_janus",                                   atlas_janus);
   SetPropI0("hl2_audio_codec",                               hl2_audio_codec);
   SetPropI0("anan10E",                                       anan10E);
-  SetPropI0("tx_out_of_band",                                tx_out_of_band);
+  SetPropI0("tx_out_of_band",                                tx_out_of_band_allowed);
   SetPropI0("filter_board",                                  filter_board);
   SetPropI0("pa_enabled",                                    pa_enabled);
   SetPropI0("pa_power",                                      pa_power);
@@ -2756,36 +2753,6 @@ void calculate_display_average(RECEIVER *rx) {
   display_average = max(2, (int)fmin(60, (double)rx->fps * t));
   SetDisplayAvBackmult(rx->id, 0, display_avb);
   SetDisplayNumAverage(rx->id, 0, display_average);
-}
-
-void radio_change_region(int r) {
-  region = r;
-
-  switch (region) {
-  case REGION_UK:
-    channel_entries = UK_CHANNEL_ENTRIES;
-    band_channels_60m = &band_channels_60m_UK[0];
-    bandstack60.entries = UK_CHANNEL_ENTRIES;
-    bandstack60.current_entry = 0;
-    bandstack60.entry = bandstack_entries60_UK;
-    break;
-
-  case REGION_OTHER:
-    channel_entries = OTHER_CHANNEL_ENTRIES;
-    band_channels_60m = &band_channels_60m_OTHER[0];
-    bandstack60.entries = OTHER_CHANNEL_ENTRIES;
-    bandstack60.current_entry = 0;
-    bandstack60.entry = bandstack_entries60_OTHER;
-    break;
-
-  case REGION_WRC15:
-    channel_entries = WRC15_CHANNEL_ENTRIES;
-    band_channels_60m = &band_channels_60m_WRC15[0];
-    bandstack60.entries = WRC15_CHANNEL_ENTRIES;
-    bandstack60.current_entry = 0;
-    bandstack60.entry = bandstack_entries60_WRC15;
-    break;
-  }
 }
 
 #ifdef CLIENT_SERVER
@@ -2997,20 +2964,25 @@ gpointer auto_tune_thread(gpointer data) {
   //
   int count = 0;
   g_idle_add(ext_tune_update, GINT_TO_POINTER(1));
+
   for (;;) {
     if (count >= 0) {
       count++;
     }
+
     usleep(50000);
+
     if (auto_tune_end) {
       g_idle_add(ext_tune_update, GINT_TO_POINTER(0));
       break;
     }
+
     if (count >= 200) {
       g_idle_add(ext_tune_update, GINT_TO_POINTER(0));
       count = -1;
     }
   }
+
   usleep(50000);       // debouncing
   auto_tune_flag = 0;
   return NULL;

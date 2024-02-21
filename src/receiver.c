@@ -218,8 +218,6 @@ gboolean receiver_scroll_event(GtkWidget *widget, const GdkEventScroll *event, g
 }
 
 void receiverSaveState(RECEIVER *rx) {
-  char name[128];
-  char value[128];
   t_print("%s: RX=%d\n", __FUNCTION__, rx->id);
   SetPropI1("receiver.%d.alex_antenna", rx->id,                 rx->alex_antenna);
   SetPropI1("receiver.%d.adc", rx->id,                          rx->adc);
@@ -306,8 +304,6 @@ void receiverSaveState(RECEIVER *rx) {
 }
 
 void receiverRestoreState(RECEIVER *rx) {
-  char name[128];
-  char *value;
   t_print("%s: id=%d\n", __FUNCTION__, rx->id);
   GetPropI1("receiver.%d.alex_antenna", rx->id,                 rx->alex_antenna);
   GetPropI1("receiver.%d.adc", rx->id,                          rx->adc);
@@ -487,8 +483,12 @@ static int update_display(gpointer data) {
         // the value obtained from WDSP is best corrected HERE for
         // possible gain and attenuation
         //
+        int id = rx->id;
+        int b  = vfo[id].band;
+        const BAND *band = band_get_band(b);
+        int calib = rx_gain_calibration - band->gain;
         double level = GetRXAMeter(rx->id, smeter);
-        level += (double)rx_gain_calibration + (double)adc[rx->adc].attenuation - adc[rx->adc].gain;
+        level += (double)calib + (double)adc[rx->adc].attenuation - adc[rx->adc].gain;
 
         if (filter_board == CHARLY25 && rx->adc == 0) {
           level += (double)(12 * rx->alex_attenuation - 18 * rx->preamp - 18 * rx->dither);
@@ -643,7 +643,6 @@ void set_filter(RECEIVER *rx) {
 
 void set_agc(RECEIVER *rx, int agc) {
   SetRXAAGCMode(rx->id, agc);
-  //SetRXAAGCThresh(rx->id, agc_thresh_point, 4096.0, rx->sample_rate);
   SetRXAAGCSlope(rx->id, rx->agc_slope);
   SetRXAAGCTop(rx->id, rx->agc_gain);
 
@@ -713,12 +712,10 @@ static void init_analyzer(RECEIVER *rx) {
   const double span_min_freq = 0.0;
   const double span_max_freq = 0.0;
   const int clip = 0;
-
   int window_type;
   int afft_size;
   int overlap;
   int pixels;
-
   pixels = rx->pixels;
   afft_size = 8192;
   window_type = 4;
@@ -729,13 +726,15 @@ static void init_analyzer(RECEIVER *rx) {
   //
   if (rx->id == PS_RX_FEEDBACK) {
     window_type = 5;
+
     if (rx->sample_rate > 100000) { afft_size = 16384; }
+
     if (rx->sample_rate > 200000) { afft_size = 32768; }
   }
 
-  int max_w = afft_size + (int) min(keep_time * (double) rx->sample_rate, keep_time * (double) afft_size * (double) rx->fps);
+  int max_w = afft_size + (int) min(keep_time * (double) rx->sample_rate,
+                                    keep_time * (double) afft_size * (double) rx->fps);
   overlap = (int)fmax(0.0, ceil(afft_size - (double)rx->sample_rate / (double)rx->fps));
-
   SetAnalyzer(rx->id,
               n_pixout,
               spur_elimination_ffts,                // number of LO frequencies = number of ffts used in elimination
@@ -1212,7 +1211,6 @@ void receiver_set_frequency(RECEIVER *rx, long long f) {
 
 void receiver_frequency_changed(RECEIVER *rx) {
   int id = rx->id;
-  long long f;
 
   if (vfo[id].ctun) {
     long long frequency = vfo[id].frequency;
@@ -1276,11 +1274,6 @@ void receiver_frequency_changed(RECEIVER *rx) {
     }
   }
 
-  //
-  // Get new band from new frequency
-  //
-  f = vfo[id].ctun ? vfo[id].ctun_frequency : vfo[id].frequency;
-  vfo[id].band = get_band_from_frequency(f);
   //
   // To make this bullet-proof, report the (possibly new) offset to WDSP
   // and send the (possibly changed) frequency to the radio in any case.

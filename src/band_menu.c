@@ -92,13 +92,27 @@ gboolean band_select_cb (GtkWidget *widget, gpointer data) {
     // Note that a band change may fail. This can happen if the local oscillator
     // of a transverter band has a grossly wrong frequency such that the effective
     // radio frequency falls outside the hardware frequency range of the radio.
-    // In this case, the band button to the band that is effective must be highlighted.
+    // In this case, the band button to the band that is effective must be highlighted
+    // and all others turned off.
     //
     //
-    g_print("BM: choice=%d band=%d\n", vfo[id].band, choice->info);
-    g_signal_handler_block(G_OBJECT(choice->button), choice->signal);
-    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(choice->button), FALSE);
-    g_signal_handler_unblock(G_OBJECT(choice->button), choice->signal);
+    choice = first;
+    current = NULL;
+
+    while (choice) {
+      g_signal_handler_block(G_OBJECT(choice->button), choice->signal);
+
+      if (choice->info == vfo[id].band) {
+        gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(choice->button), TRUE);
+        current = choice;
+      } else {
+        gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(choice->button), FALSE);
+      }
+
+      g_signal_handler_unblock(G_OBJECT(choice->button), choice->signal);
+      choice = choice->next;
+    }
+
     return FALSE;
   }
 
@@ -141,7 +155,7 @@ void band_menu(GtkWidget *parent) {
   j = 0;
 
   for (i = 0; i < BANDS + XVTRS; i++) {
-    BAND *band;
+    const BAND *band;
     band = (BAND*)band_get_band(i);
 
     if (strlen(band->title) > 0) {

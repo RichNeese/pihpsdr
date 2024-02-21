@@ -651,7 +651,10 @@ endif
 #
 ##############################################################################
 
-CPPOPTIONS= --inline-suppr --enable=all --suppress=constParameterCallback --suppress=missingIncludeSystem
+CPPOPTIONS= --inline-suppr --enable=all
+CPPOPTIONS += --suppress=unusedFunction
+CPPOPTIONS += --suppress=constParameterCallback
+CPPOPTIONS += --suppress=missingIncludeSystem
 CPPINCLUDES:=$(shell echo $(INCLUDES) | sed -e "s/-pthread / /" )
 
 ifeq ($(UNAME_S), Darwin)
@@ -662,7 +665,7 @@ endif
 
 .PHONY:	cppcheck
 cppcheck:
-	cppcheck $(CPPOPTIONS) $(OPTIONS) $(CPPINCLUDES) $(AUDIO_SOURCES) $(SOURCES) \
+	cppcheck -j 4 $(CPPOPTIONS) $(OPTIONS) $(CPPINCLUDES) $(AUDIO_SOURCES) $(SOURCES) \
 	$(USBOZY_SOURCES)  $(SOAPYSDR_SOURCES) $(MIDI_SOURCES) $(STEMLAB_SOURCES) \
 	$(SERVER_SOURCES) $(SATURN_SOURCES)
 
@@ -689,7 +692,6 @@ release: $(PROGRAM)
 	rm -f release/pihpsdr/pihpsdr
 	rm -f release/pihpsdr/libwdsp.so
 	cp $(PROGRAM) release/pihpsdr
-	cd release; tar cvf pihpsdr.tar pihpsdr
 	cd release; tar cvf pihpsdr-$(GIT_VERSION).tar pihpsdr
 
 .PHONY: install-deps

@@ -28,7 +28,6 @@
 #include "radio.h"
 #include "vfo.h"
 
-static int current_band = band20;
 int xvtr_band = BANDS;
 
 char* outOfBand = "Out of band";
@@ -45,35 +44,35 @@ char* outOfBand = "Out of band";
 //
 // The var1/2 low/high frequencies were removed because they were nowhere used.
 //
-BANDSTACK_ENTRY bandstack_entries136[] = {
+static BANDSTACK_ENTRY bandstack_entries136[] = {
   {135800LL, 0, 0LL, modeCWL, filterF6, 2500, 0, 0},
   {137100LL, 0, 0LL, modeCWL, filterF6, 2500, 0, 0}
 };
 
-BANDSTACK_ENTRY bandstack_entries472[] = {
+static BANDSTACK_ENTRY bandstack_entries472[] = {
   {472100LL, 0, 0LL, modeCWL, filterF6, 2500, 0, 0},
   {475100LL, 0, 0LL, modeCWL, filterF6, 2500, 0, 0}
 };
 
-BANDSTACK_ENTRY bandstack_entries160[] = {
+static BANDSTACK_ENTRY bandstack_entries160[] = {
   {1810000LL, 0, 0LL, modeCWL, filterF6, 2500, 0, 0},
   {1835000LL, 0, 0LL, modeCWU, filterF6, 2500, 0, 0},
   {1845000LL, 0, 0LL, modeUSB, filterF5, 2500, 0, 0}
 };
 
-BANDSTACK_ENTRY bandstack_entries80[] = {
+static BANDSTACK_ENTRY bandstack_entries80[] = {
   {3501000LL, 0, 0LL, modeCWL, filterF6, 2500, 0, 0},
   {3751000LL, 0, 0LL, modeLSB, filterF5, 2500, 0, 0},
   {3850000LL, 0, 0LL, modeLSB, filterF5, 2500, 0, 0}
 };
 
-BANDSTACK_ENTRY bandstack_entries60_WRC15[] = {
+static BANDSTACK_ENTRY bandstack_entries60_WRC15[] = {
   {5352750LL, 0, 0LL, modeCWU, filterF6, 2500, 0, 0},
   {5357000LL, 0, 0LL, modeUSB, filterF5, 2500, 0, 0},
   {5363000LL, 0, 0LL, modeUSB, filterF5, 2500, 0, 0}
 };
 
-BANDSTACK_ENTRY bandstack_entries60_OTHER[] = {
+static BANDSTACK_ENTRY bandstack_entries60_OTHER[] = {
   {5332000LL, 0, 0LL, modeUSB, filterF5, 2500, 0, 0}, // default channels for
   {5348000LL, 0, 0LL, modeUSB, filterF5, 2500, 0, 0}, // 60m band, US regulations
   {5358500LL, 0, 0LL, modeUSB, filterF5, 2500, 0, 0},
@@ -81,7 +80,7 @@ BANDSTACK_ENTRY bandstack_entries60_OTHER[] = {
   {5405000LL, 0, 0LL, modeUSB, filterF5, 2500, 0, 0}
 };
 
-BANDSTACK_ENTRY bandstack_entries60_UK[] = {
+static BANDSTACK_ENTRY bandstack_entries60_UK[] = {
   {5261250LL, 0, 0LL, modeUSB, filterF5, 2500, 0, 0}, // default channels for
   {5280000LL, 0, 0LL, modeUSB, filterF5, 2500, 0, 0}, // 60m band, UK regulations
   {5290250LL, 0, 0LL, modeUSB, filterF5, 2500, 0, 0},
@@ -95,62 +94,62 @@ BANDSTACK_ENTRY bandstack_entries60_UK[] = {
   {5405000LL, 0, 0LL, modeUSB, filterF5, 2500, 0, 0}
 };
 
-BANDSTACK_ENTRY bandstack_entries40[] = {
+static BANDSTACK_ENTRY bandstack_entries40[] = {
   {7001000LL, 0, 0LL, modeCWL, filterF6, 2500, 0, 0},
   {7152000LL, 0, 0LL, modeLSB, filterF5, 2500, 0, 0},
   {7255000LL, 0, 0LL, modeLSB, filterF5, 2500, 0, 0}
 };
 
-BANDSTACK_ENTRY bandstack_entries30[] = {
+static BANDSTACK_ENTRY bandstack_entries30[] = {
   {10120000LL, 0, 0LL, modeCWU, filterF6, 2500, 0, 0},
   {10130000LL, 0, 0LL, modeCWU, filterF6, 2500, 0, 0},
   {10140000LL, 0, 0LL, modeCWU, filterF6, 2500, 0, 0}
 };
 
-BANDSTACK_ENTRY bandstack_entries20[] = {
+static BANDSTACK_ENTRY bandstack_entries20[] = {
   {14010000LL, 0, 0LL, modeCWU, filterF6, 2500, 0, 0},
   {14150000LL, 0, 0LL, modeUSB, filterF5, 2500, 0, 0},
   {14230000LL, 0, 0LL, modeUSB, filterF5, 2500, 0, 0},
   {14336000LL, 0, 0LL, modeUSB, filterF5, 2500, 0, 0}
 };
 
-BANDSTACK_ENTRY bandstack_entries17[] = {
+static BANDSTACK_ENTRY bandstack_entries17[] = {
   {18068600LL, 0, 0LL, modeCWU, filterF6, 2500, 0, 0},
   {18125000LL, 0, 0LL, modeUSB, filterF5, 2500, 0, 0},
   {18140000LL, 0, 0LL, modeUSB, filterF5, 2500, 0, 0}
 };
 
-BANDSTACK_ENTRY bandstack_entries15[] = {
+static BANDSTACK_ENTRY bandstack_entries15[] = {
   {21001000LL, 0, 0LL, modeCWU, filterF6, 2500, 0, 0},
   {21255000LL, 0, 0LL, modeUSB, filterF5, 2500, 0, 0},
   {21300000LL, 0, 0LL, modeUSB, filterF5, 2500, 0, 0}
 };
 
-BANDSTACK_ENTRY bandstack_entries12[] = {
+static BANDSTACK_ENTRY bandstack_entries12[] = {
   {24895000LL, 0, 0LL, modeCWU, filterF6, 2500, 0, 0},
   {24900000LL, 0, 0LL, modeUSB, filterF5, 2500, 0, 0},
   {24910000LL, 0, 0LL, modeUSB, filterF5, 2500, 0, 0}
 };
 
-BANDSTACK_ENTRY bandstack_entries10[] = {
+static BANDSTACK_ENTRY bandstack_entries10[] = {
   {28010000LL, 0, 0LL, modeCWU, filterF6, 2500, 0, 0},
   {28300000LL, 0, 0LL, modeUSB, filterF5, 2500, 0, 0},
   {28400000LL, 0, 0LL, modeUSB, filterF5, 2500, 0, 0}
 };
 
-BANDSTACK_ENTRY bandstack_entries6[] = {
+static BANDSTACK_ENTRY bandstack_entries6[] = {
   {50010000LL, 0, 0LL, modeCWU, filterF6, 2500, 0, 0},
   {50125000LL, 0, 0LL, modeUSB, filterF5, 2500, 0, 0},
   {50200000LL, 0, 0LL, modeUSB, filterF5, 2500, 0, 0}
 };
 
-BANDSTACK_ENTRY bandstack_entries70[] = {
+static BANDSTACK_ENTRY bandstack_entries70[] = {
   {70010000LL, 0, 0LL, modeCWU, filterF6, 2500, 0, 0},
   {70200000LL, 0, 0LL, modeUSB, filterF5, 2500, 0, 0},
   {70250000LL, 0, 0LL, modeUSB, filterF5, 2500, 0, 0}
 };
 
-BANDSTACK_ENTRY bandstack_entries144[] = {
+static BANDSTACK_ENTRY bandstack_entries144[] = {
   {144010000LL, 0, 0LL, modeCWU, filterF6, 2500, 0, 0},
   {144200000LL, 0, 0LL, modeUSB, filterF5, 2500, 0, 0},
   {144250000LL, 0, 0LL, modeUSB, filterF5, 2500, 0, 0},
@@ -159,43 +158,43 @@ BANDSTACK_ENTRY bandstack_entries144[] = {
   {145900000LL, 0, 0LL, modeFMN, filterF0, 2500, 0, 0}
 };
 
-BANDSTACK_ENTRY bandstack_entries220[] = {
+static BANDSTACK_ENTRY bandstack_entries220[] = {
   {220010000LL, 0, 0LL, modeCWU, filterF6, 2500, 0, 0},
   {220200000LL, 0, 0LL, modeUSB, filterF5, 2500, 0, 0},
   {220250000LL, 0, 0LL, modeUSB, filterF5, 2500, 0, 0}
 };
 
-BANDSTACK_ENTRY bandstack_entries430[] = {
+static BANDSTACK_ENTRY bandstack_entries430[] = {
   {430010000LL, 0, 0LL, modeCWU, filterF6, 2500, 0, 0},
   {432100000LL, 0, 0LL, modeUSB, filterF5, 2500, 0, 0},
   {432300000LL, 0, 0LL, modeUSB, filterF5, 2500, 0, 0}
 };
 
-BANDSTACK_ENTRY bandstack_entries902[] = {
+static BANDSTACK_ENTRY bandstack_entries902[] = {
   {902010000LL, 0, 0LL, modeCWU, filterF6, 2500, 0, 0},
   {902100000LL, 0, 0LL, modeUSB, filterF5, 2500, 0, 0},
   {902300000LL, 0, 0LL, modeUSB, filterF5, 2500, 0, 0}
 };
 
-BANDSTACK_ENTRY bandstack_entries1240[] = {
+static BANDSTACK_ENTRY bandstack_entries1240[] = {
   {1240010000LL, 0, 0LL, modeCWU, filterF6, 2500, 0, 0},
   {1240100000LL, 0, 0LL, modeUSB, filterF5, 2500, 0, 0},
   {1240300000LL, 0, 0LL, modeUSB, filterF5, 2500, 0, 0}
 };
 
-BANDSTACK_ENTRY bandstack_entries2300[] = {
+static BANDSTACK_ENTRY bandstack_entries2300[] = {
   {2300010000LL, 0, 0LL, modeCWU, filterF6, 2500, 0, 0},
   {2300100000LL, 0, 0LL, modeUSB, filterF5, 2500, 0, 0},
   {2300300000LL, 0, 0LL, modeUSB, filterF5, 2500, 0, 0}
 };
 
-BANDSTACK_ENTRY bandstack_entries3400[] = {
+static BANDSTACK_ENTRY bandstack_entries3400[] = {
   {3400010000LL, 0, 0LL, modeCWU, filterF6, 2500, 0, 0},
   {3400100000LL, 0, 0LL, modeUSB, filterF5, 2500, 0, 0},
   {3400300000LL, 0, 0LL, modeUSB, filterF5, 2500, 0, 0}
 };
 
-BANDSTACK_ENTRY bandstack_entriesAIR[] = {
+static BANDSTACK_ENTRY bandstack_entriesAIR[] = {
   {118800000LL, 0, 0LL, modeAM, filterF3, 2500, 0, 0},
   {120000000LL, 0, 0LL, modeAM, filterF3, 2500, 0, 0},
   {121700000LL, 0, 0LL, modeAM, filterF3, 2500, 0, 0},
@@ -204,44 +203,45 @@ BANDSTACK_ENTRY bandstack_entriesAIR[] = {
   {136500000LL, 0, 0LL, modeAM, filterF3, 2500, 0, 0}
 };
 
-BANDSTACK_ENTRY bandstack_entriesGEN[] = {
+static BANDSTACK_ENTRY bandstack_entriesGEN[] = {
   {909000LL,    0, 0LL, modeAM, filterF3, 2500, 0, 0},
   {5975000LL,   0, 0LL, modeAM, filterF3, 2500, 0, 0},
   {13845000LL,  0, 0LL, modeAM, filterF3, 2500, 0, 0}
 };
 
-BANDSTACK_ENTRY bandstack_entriesWWV[] = {
+static BANDSTACK_ENTRY bandstack_entriesWWV[] = {
   {2500000LL,   0, 0LL, modeSAM, filterF3, 2500, 0, 0},
   {5000000LL,   0, 0LL, modeSAM, filterF3, 2500, 0, 0},
   {10000000LL,  0, 0LL, modeSAM, filterF3, 2500, 0, 0},
   {15000000LL,  0, 0LL, modeSAM, filterF3, 2500, 0, 0},
-  {20000000LL,  0, 0LL, modeSAM, filterF3, 2500, 0, 0}
+  {20000000LL,  0, 0LL, modeSAM, filterF3, 2500, 0, 0},
+  {25000000LL,  0, 0LL, modeSAM, filterF3, 2500, 0, 0}
 };
 
-BANDSTACK bandstack160  = {3, 1, bandstack_entries160};
-BANDSTACK bandstack80   = {3, 1, bandstack_entries80};
-BANDSTACK bandstack60   = {5, 1, bandstack_entries60_OTHER};
-BANDSTACK bandstack40   = {3, 1, bandstack_entries40};
-BANDSTACK bandstack30   = {3, 1, bandstack_entries30};
-BANDSTACK bandstack20   = {4, 1, bandstack_entries20};
-BANDSTACK bandstack17   = {3, 1, bandstack_entries17};
-BANDSTACK bandstack15   = {3, 1, bandstack_entries15};
-BANDSTACK bandstack12   = {3, 1, bandstack_entries12};
-BANDSTACK bandstack10   = {3, 1, bandstack_entries10};
-BANDSTACK bandstack6    = {3, 1, bandstack_entries6};
-BANDSTACK bandstack70   = {3, 1, bandstack_entries70};
-BANDSTACK bandstack144  = {6, 1, bandstack_entries144};
-BANDSTACK bandstack220  = {3, 1, bandstack_entries220};
-BANDSTACK bandstack430  = {3, 1, bandstack_entries430};
-BANDSTACK bandstack902  = {3, 1, bandstack_entries902};
-BANDSTACK bandstack1240 = {3, 1, bandstack_entries1240};
-BANDSTACK bandstack2300 = {3, 1, bandstack_entries2300};
-BANDSTACK bandstack3400 = {3, 1, bandstack_entries3400};
-BANDSTACK bandstackAIR  = {6, 1, bandstack_entriesAIR};
-BANDSTACK bandstackGEN  = {3, 1, bandstack_entriesGEN};
-BANDSTACK bandstackWWV  = {5, 1, bandstack_entriesWWV};
-BANDSTACK bandstack136  = {2, 0, bandstack_entries136};
-BANDSTACK bandstack472  = {2, 0, bandstack_entries472};
+static BANDSTACK bandstack160  = {3, 1, bandstack_entries160};
+static BANDSTACK bandstack80   = {3, 1, bandstack_entries80};
+static BANDSTACK bandstack60   = {5, 1, bandstack_entries60_OTHER};
+static BANDSTACK bandstack40   = {3, 1, bandstack_entries40};
+static BANDSTACK bandstack30   = {3, 1, bandstack_entries30};
+static BANDSTACK bandstack20   = {4, 1, bandstack_entries20};
+static BANDSTACK bandstack17   = {3, 1, bandstack_entries17};
+static BANDSTACK bandstack15   = {3, 1, bandstack_entries15};
+static BANDSTACK bandstack12   = {3, 1, bandstack_entries12};
+static BANDSTACK bandstack10   = {3, 1, bandstack_entries10};
+static BANDSTACK bandstack6    = {3, 1, bandstack_entries6};
+static BANDSTACK bandstack70   = {3, 1, bandstack_entries70};
+static BANDSTACK bandstack144  = {6, 1, bandstack_entries144};
+static BANDSTACK bandstack220  = {3, 1, bandstack_entries220};
+static BANDSTACK bandstack430  = {3, 1, bandstack_entries430};
+static BANDSTACK bandstack902  = {3, 1, bandstack_entries902};
+static BANDSTACK bandstack1240 = {3, 1, bandstack_entries1240};
+static BANDSTACK bandstack2300 = {3, 1, bandstack_entries2300};
+static BANDSTACK bandstack3400 = {3, 1, bandstack_entries3400};
+static BANDSTACK bandstackAIR  = {6, 1, bandstack_entriesAIR};
+static BANDSTACK bandstackGEN  = {3, 1, bandstack_entriesGEN};
+static BANDSTACK bandstackWWV  = {6, 1, bandstack_entriesWWV};
+static BANDSTACK bandstack136  = {2, 0, bandstack_entries136};
+static BANDSTACK bandstack472  = {2, 0, bandstack_entries472};
 
 /* --------------------------------------------------------------------------*/
 /**
@@ -249,57 +249,57 @@ BANDSTACK bandstack472  = {2, 0, bandstack_entries472};
 */
 /* ----------------------------------------------------------------------------*/
 
-BANDSTACK_ENTRY bandstack_entries_xvtr_0[] = {
+static BANDSTACK_ENTRY bandstack_entries_xvtr_0[] = {
   {0LL, 0, 0LL, modeUSB, filterF6, 2500, 0, 0},
   {0LL, 0, 0LL, modeUSB, filterF6, 2500, 0, 0},
   {0LL, 0, 0LL, modeUSB, filterF6, 2500, 0, 0}
 };
-BANDSTACK_ENTRY bandstack_entries_xvtr_1[] = {
+static BANDSTACK_ENTRY bandstack_entries_xvtr_1[] = {
   {0LL, 0, 0LL, modeUSB, filterF6, 2500, 0, 0},
   {0LL, 0, 0LL, modeUSB, filterF6, 2500, 0, 0},
   {0LL, 0, 0LL, modeUSB, filterF6, 2500, 0, 0}
 };
-BANDSTACK_ENTRY bandstack_entries_xvtr_2[] = {
+static BANDSTACK_ENTRY bandstack_entries_xvtr_2[] = {
   {0LL, 0, 0LL, modeUSB, filterF6, 2500, 0, 0},
   {0LL, 0, 0LL, modeUSB, filterF6, 2500, 0, 0},
   {0LL, 0, 0LL, modeUSB, filterF6, 2500, 0, 0}
 };
-BANDSTACK_ENTRY bandstack_entries_xvtr_3[] = {
+static BANDSTACK_ENTRY bandstack_entries_xvtr_3[] = {
   {0LL, 0, 0LL, modeUSB, filterF6, 2500, 0, 0},
   {0LL, 0, 0LL, modeUSB, filterF6, 2500, 0, 0},
   {0LL, 0, 0LL, modeUSB, filterF6, 2500, 0, 0}
 };
-BANDSTACK_ENTRY bandstack_entries_xvtr_4[] = {
+static BANDSTACK_ENTRY bandstack_entries_xvtr_4[] = {
   {0LL, 0, 0LL, modeUSB, filterF6, 2500, 0, 0},
   {0LL, 0, 0LL, modeUSB, filterF6, 2500, 0, 0},
   {0LL, 0, 0LL, modeUSB, filterF6, 2500, 0, 0}
 };
-BANDSTACK_ENTRY bandstack_entries_xvtr_5[] = {
+static BANDSTACK_ENTRY bandstack_entries_xvtr_5[] = {
   {0LL, 0, 0LL, modeUSB, filterF6, 2500, 0, 0},
   {0LL, 0, 0LL, modeUSB, filterF6, 2500, 0, 0},
   {0LL, 0, 0LL, modeUSB, filterF6, 2500, 0, 0}
 };
-BANDSTACK_ENTRY bandstack_entries_xvtr_6[] = {
+static BANDSTACK_ENTRY bandstack_entries_xvtr_6[] = {
   {0LL, 0, 0LL, modeUSB, filterF6, 2500, 0, 0},
   {0LL, 0, 0LL, modeUSB, filterF6, 2500, 0, 0},
   {0LL, 0, 0LL, modeUSB, filterF6, 2500, 0, 0}
 };
-BANDSTACK_ENTRY bandstack_entries_xvtr_7[] = {
+static BANDSTACK_ENTRY bandstack_entries_xvtr_7[] = {
   {0LL, 0, 0LL, modeUSB, filterF6, 2500, 0, 0},
   {0LL, 0, 0LL, modeUSB, filterF6, 2500, 0, 0},
   {0LL, 0, 0LL, modeUSB, filterF6, 2500, 0, 0}
 };
 
-BANDSTACK bandstack_xvtr_0 = {3, 0, bandstack_entries_xvtr_0};
-BANDSTACK bandstack_xvtr_1 = {3, 0, bandstack_entries_xvtr_1};
-BANDSTACK bandstack_xvtr_2 = {3, 0, bandstack_entries_xvtr_2};
-BANDSTACK bandstack_xvtr_3 = {3, 0, bandstack_entries_xvtr_3};
-BANDSTACK bandstack_xvtr_4 = {3, 0, bandstack_entries_xvtr_4};
-BANDSTACK bandstack_xvtr_5 = {3, 0, bandstack_entries_xvtr_5};
-BANDSTACK bandstack_xvtr_6 = {3, 0, bandstack_entries_xvtr_6};
-BANDSTACK bandstack_xvtr_7 = {3, 0, bandstack_entries_xvtr_7};
+static BANDSTACK bandstack_xvtr_0 = {3, 0, bandstack_entries_xvtr_0};
+static BANDSTACK bandstack_xvtr_1 = {3, 0, bandstack_entries_xvtr_1};
+static BANDSTACK bandstack_xvtr_2 = {3, 0, bandstack_entries_xvtr_2};
+static BANDSTACK bandstack_xvtr_3 = {3, 0, bandstack_entries_xvtr_3};
+static BANDSTACK bandstack_xvtr_4 = {3, 0, bandstack_entries_xvtr_4};
+static BANDSTACK bandstack_xvtr_5 = {3, 0, bandstack_entries_xvtr_5};
+static BANDSTACK bandstack_xvtr_6 = {3, 0, bandstack_entries_xvtr_6};
+static BANDSTACK bandstack_xvtr_7 = {3, 0, bandstack_entries_xvtr_7};
 
-BAND bands[BANDS + XVTRS] = {
+static BAND bands[BANDS + XVTRS] = {
   {"136kHz", &bandstack136,     0, 0, 0, 0, 0, 0, 53.0,     135700LL,     137800LL, 0LL, 0LL, 0},
   {"472kHz", &bandstack472,     0, 0, 0, 0, 0, 0, 53.0,     472000LL,     479000LL, 0LL, 0LL, 0},
   {"160",    &bandstack160,     0, 0, 0, 0, 0, 0, 53.0,    1800000LL,    2000000LL, 0LL, 0LL, 0},
@@ -335,7 +335,7 @@ BAND bands[BANDS + XVTRS] = {
   {"",       &bandstack_xvtr_7, 0, 0, 0, 0, 0, 0, 53.0,          0LL,          0LL, 0LL, 0LL, 1}
 };
 
-CHANNEL band_channels_60m_UK[UK_CHANNEL_ENTRIES] = {
+static CHANNEL band_channels_60m_UK[UK_CHANNEL_ENTRIES] = {
   {5261250LL, 5500LL},
   {5280000LL, 8000LL},
   {5290250LL, 3500LL},
@@ -353,10 +353,10 @@ CHANNEL band_channels_60m_UK[UK_CHANNEL_ENTRIES] = {
 // Many countries have now allowed ham radio on the 60m
 // band based on WRC15. There is a single 15 kHz wide "channel"
 //
-CHANNEL band_channels_60m_WRC15[WRC15_CHANNEL_ENTRIES] =
+static CHANNEL band_channels_60m_WRC15[WRC15_CHANNEL_ENTRIES] =
 {{5359000LL, 15000LL}};
 
-CHANNEL band_channels_60m_OTHER[OTHER_CHANNEL_ENTRIES] = {
+static CHANNEL band_channels_60m_OTHER[OTHER_CHANNEL_ENTRIES] = {
   {5332000LL, 2800LL},
   {5348000LL, 2800LL},
   {5358500LL, 2800LL},
@@ -364,6 +364,10 @@ CHANNEL band_channels_60m_OTHER[OTHER_CHANNEL_ENTRIES] = {
   {5405000LL, 2800LL}
 };
 
+//
+// channel_entires and band_channels_60m are used in the RX panadapter
+// to mark the "channels"
+//
 int channel_entries;
 CHANNEL *band_channels_60m;
 
@@ -371,29 +375,43 @@ BANDSTACK *bandstack_get_bandstack(int band) {
   return bands[band].bandstack;
 }
 
-int band_get_current() {
-  return current_band;
-}
-
-BAND *band_get_current_band() {
-  BAND *b = &bands[current_band];
-  return b;
-}
 
 BAND *band_get_band(int b) {
   BAND *band = &bands[b];
   return band;
 }
 
-BAND *band_set_current(int b) {
-  current_band = b;
-  return &bands[b];
+void radio_change_region(int r) {
+  region = r;
+
+  switch (region) {
+  case REGION_UK:
+    channel_entries = UK_CHANNEL_ENTRIES;
+    band_channels_60m = &band_channels_60m_UK[0];
+    bandstack60.entries = UK_CHANNEL_ENTRIES;
+    bandstack60.current_entry = 0;
+    bandstack60.entry = bandstack_entries60_UK;
+    break;
+
+  case REGION_OTHER:
+    channel_entries = OTHER_CHANNEL_ENTRIES;
+    band_channels_60m = &band_channels_60m_OTHER[0];
+    bandstack60.entries = OTHER_CHANNEL_ENTRIES;
+    bandstack60.current_entry = 0;
+    bandstack60.entry = bandstack_entries60_OTHER;
+    break;
+
+  case REGION_WRC15:
+    channel_entries = WRC15_CHANNEL_ENTRIES;
+    band_channels_60m = &band_channels_60m_WRC15[0];
+    bandstack60.entries = WRC15_CHANNEL_ENTRIES;
+    bandstack60.current_entry = 0;
+    bandstack60.entry = bandstack_entries60_WRC15;
+    break;
+  }
 }
 
 void bandSaveState() {
-  char name[128];
-  char value[128];
-  SetPropI0("band",                 current_band);
 
   for (int b = 0; b < BANDS + XVTRS; b++) {
     //
@@ -401,20 +419,23 @@ void bandSaveState() {
     //
     if (strlen(bands[b].title) == 0) { continue; }
 
-    SetPropS1("band.%d.title", b,              bands[b].title);
+    if (b >= BANDS) {
+      SetPropS1("band.%d.title", b,              bands[b].title);
+      SetPropI1("band.%d.frequencyMin", b,       bands[b].frequencyMin);
+      SetPropI1("band.%d.frequencyMax", b,       bands[b].frequencyMax);
+      SetPropI1("band.%d.frequencyLO", b,        bands[b].frequencyLO);
+      SetPropI1("band.%d.errorLO", b,            bands[b].errorLO);
+      SetPropI1("band.%d.disablePA", b,          bands[b].disablePA);
+      SetPropI1("band.%d.gain", b,               bands[b].gain);
+    }
+
     SetPropI1("band.%d.current", b,            bands[b].bandstack->current_entry);
-    SetPropI1("band.%d.preamp", b,             bands[b].preamp);
     SetPropI1("band.%d.alexRxAntenna", b,      bands[b].alexRxAntenna);
     SetPropI1("band.%d.alexTxAntenna", b,      bands[b].alexTxAntenna);
     SetPropI1("band.%d.alexAttenuation", b,    bands[b].alexAttenuation);
     SetPropF1("band.%d.pa_calibration", b,     bands[b].pa_calibration);
     SetPropI1("band.%d.OCrx", b,               bands[b].OCrx);
     SetPropI1("band.%d.OCtx", b,               bands[b].OCtx);
-    SetPropI1("band.%d.frequencyMin", b,       bands[b].frequencyMin);
-    SetPropI1("band.%d.frequencyMax", b,       bands[b].frequencyMax);
-    SetPropI1("band.%d.frequencyLO", b,        bands[b].frequencyLO);
-    SetPropI1("band.%d.errorLO", b,            bands[b].errorLO);
-    SetPropI1("band.%d.disablePA", b,          bands[b].disablePA);
 
     for (int stack = 0; stack < bands[b].bandstack->entries; stack++) {
       BANDSTACK_ENTRY *entry = bands[b].bandstack->entry;
@@ -432,9 +453,6 @@ void bandSaveState() {
 }
 
 void bandRestoreState() {
-  char name[128];
-  char* value;
-  GetPropI0("band",                 current_band);
 
   for (int b = 0; b < BANDS + XVTRS; b++) {
     //
@@ -449,10 +467,10 @@ void bandRestoreState() {
       GetPropI1("band.%d.frequencyLO", b,        bands[b].frequencyLO);
       GetPropI1("band.%d.errorLO", b,            bands[b].errorLO);
       GetPropI1("band.%d.disablePA", b,          bands[b].disablePA);
+      GetPropI1("band.%d.gain", b,               bands[b].gain);
     }
 
     GetPropI1("band.%d.current", b,            bands[b].bandstack->current_entry);
-    GetPropI1("band.%d.preamp", b,             bands[b].preamp);
     GetPropI1("band.%d.alexRxAntenna", b,      bands[b].alexRxAntenna);
     GetPropI1("band.%d.alexTxAntenna", b,      bands[b].alexTxAntenna);
     GetPropI1("band.%d.alexAttenuation", b,    bands[b].alexAttenuation);
@@ -473,11 +491,6 @@ void bandRestoreState() {
       GetPropI2("band.%d.stack.%d.ctcss", b, stack,          entry->ctcss);
     }
   }
-
-  //
-  // Sanity checks
-  //
-  if (current_band >= BANDS + XVTRS) { current_band = band20; }
 
   for (int b = 0; b < BANDS + XVTRS; b++) {
     //
@@ -523,7 +536,7 @@ int get_band_from_frequency(long long f) {
   }
 
   //
-  // start a new search on the xvtr bands such that if a xvtr
+  // start a new search on the xvtr bands such that if an xvtr
   // band produces a match, it will take precedence
   //
   for (b = BANDS; b < BANDS + XVTRS; b++) {
@@ -538,9 +551,30 @@ int get_band_from_frequency(long long f) {
   }
 
   //
-  // If the frequency is out of range, use bandGen
+  // If no band has been found:
+  //  - use bandWWV if the frequency is (close to) 2.5, 5.0, 10.0, 15.0, 20.0, or 25.0 MHz
+  //    (WWV broadcasts on 25 MHz on an experimental basis)
   //
-  if (found < 0) { found = bandGen; }
+  //  - use bandGEN if anything else does not give a match.
+  //    Note that frequencies in the 6m band result in bandGEN
+  //    if the radio does not support frequencies > 30 MHz.
+  //
+  if (found < 0) {
+    found = bandGen;
+
+    if (llabs(f -  2500000LL) <= 1000) { found = bandWWV; }
+
+    if (llabs(f -  5000000LL) <= 1000) { found = bandWWV; }
+
+    if (llabs(f - 10000000LL) <= 1000) { found = bandWWV; }
+
+    if (llabs(f - 15000000LL) <= 1000) { found = bandWWV; }
+
+    if (llabs(f - 20000000LL) <= 1000) { found = bandWWV; }
+
+    if (llabs(f - 25000000LL) <= 1000) { found = bandWWV; }
+
+  }
 
   return found;
 }
@@ -585,7 +619,7 @@ int TransmitAllowed() {
   int result;
   long long txfreq, flow, fhigh;
   int txb, txvfo, txmode;
-  BAND *txband;
+  const BAND *txband;
 
   //
   // If there is no transmitter, we cannot transmit
@@ -595,7 +629,7 @@ int TransmitAllowed() {
   //
   // quick return if out-of-band TX is enabled
   //
-  if (tx_out_of_band) { return 1; }
+  if (tx_out_of_band_allowed) { return 1; }
 
   txvfo = get_tx_vfo();
   txb = vfo[txvfo].band;
@@ -662,7 +696,7 @@ void band_plus(int id) {
   int found = 0;
 
   while (!found) {
-    BAND *band;
+    const BAND *band;
     b++;
 
     if (b >= BANDS + XVTRS) { b = 0; }
@@ -691,7 +725,7 @@ void band_minus(int id) {
   int found = 0;
 
   while (!found) {
-    BAND *band;
+    const BAND *band;
     b--;
 
     if (b < 0) { b = BANDS + XVTRS - 1; }

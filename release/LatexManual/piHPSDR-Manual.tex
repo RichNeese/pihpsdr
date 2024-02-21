@@ -25,7 +25,6 @@ Christoph van W\"ullen, DL1YCF \\
 email: \texttt{dl1ycf@darc.de}
 }
 
-%
 \maketitle
 \textbf{Copyright Notice:}
 
@@ -1421,16 +1420,6 @@ For RX-only radios, the TX ALC setting will not be shown in the menu.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \section{The \texttt{XVTR} (Transverter) Menu}
 
-The \bltt{XVTR} menu lets you define additional bands
-that you can work on using transverters. The bands
-should normally be beyond the standard frequency range of
-the radio, otherwise the calculation of a band from
-a given frequency will sometimes not work. To give an example,
-suppose you have a transverter which you can drive with frequencies
-between 28 and 30 MHz and which will convert them to the frequency
-range 144 to 146 MHz, and which will receive frequencies in that
-range and mix them down to the 10m band. The data you have to enter
-in the \bltt{XVTR} menu (use the first free entry) are as follows:
 \begin{figure}[ht]
 \center
 \includegraphics[width=12cm]{XVTRMenu.png}
@@ -1438,28 +1427,56 @@ in the \bltt{XVTR} menu (use the first free entry) are as follows:
 \label{fig:XVTRMenu}
 \end{figure}
 
-
+The \bltt{XVTR} menu lets you define additional bands
+that you can work on using transverters. The bands
+should normally be beyond the standard frequency range of
+the radio, otherwise the calculation of a band from
+a given frequency will sometimes not work. 
+Fig. \ref{fig:XVTRMenu} shows the \bltt{XVTR} menu with data
+for an example for a transverter which you can drive with frequencies
+between 28 and 30 MHz and which will convert them to the frequency
+range 144 to 146 MHz, and which will receive frequencies in that
+range and mix them down to the 10m band. The data you have to enter
+in the \bltt{XVTR} menu (use the first free entry) are as follows:
 
 \rett{Title} In this column, enter a name for your band. You can choose
 whatever name you want, this is the one that will be displayed in the
 \bltt{Band} menu. In the present example, use "144" or "144 MHz" or "2m".
+If the title string is empty, all transverter data for this band will
+be cleared.
 
-\rett{Min Freq} Enter the lowest frequency of the transverter band in MHz,
+\rett{Min Frq} Enter the lowest frequency of the transverter band in MHz,
 in the present case, 144.
 
-\rett{Max Freq} Enter the highest frequency of the transverter band in MHz,
+\rett{Max Frq} Enter the highest frequency of the transverter band in MHz,
 in the present case, 146.
 
-\rett{LO Freq} This is the frequency offset (in MHz) between the radio frequency and
+\rett{LO Frq} This is the frequency offset (in MHz) between the radio frequency and
 the operating frequency. In this case, use 116. From this offset, radio frequencies
 between 28 and 30 MHz will be used for operating frequencies between 144 and 146 MHz.
 
 \rett{LO Err} This entry can be used for a fine calibration of the frequency. The value
 (in Hz) is added to the local oscillator (LO) freq in MHz.
 
-\rett{Disable PA} This checkbox indicates that the PA of the radio should be disabled
+\rett{Gain} For each transverter band, the RX gain of the transverter can be specified here.
+If the transverter has a positive gain, the signal will appear too strong in the
+meter and the panadapter, so 
+entering a positive number here will \textit{reduce} the dBm reading in the meter area.
+This setting affects the meter reading, and the RX panadapter and waterfall.
+
+\rett{Disable PA} This checkbox is only present for HPSDR (P1 and P2) radios and
+indicates that the PA of the radio should be disabled
 when using the transverter band. This implies that the radio has some sort of
 low-power output that is used to drive the transverter.
+
+\rett{Update} When entering data in the text fields, it does not become effective
+immediately. The data is stored if you leave the menu, but also if you push the
+\rett{Update} button. After pressing this button, the text fields will be re-generated,
+so if you have typed in, for example, "144" as the minimum frequency, this text field
+will change to "144.000". Consistency checks are performed as well: the minimum and maximum
+frequencies are recalculated from the local oscillator frequency and the frequency range
+of the radio, if something does not fit. It is therefore recommended to push
+\rett{Update} and review the text fields before leaving the \bltt{XVTR} menu.
 
 \begin{figure}[h!]
 \center
@@ -1474,13 +1491,8 @@ The Pluto is
 operated via the SoapySDR interface. For receiving in the 10 GHz band, one uses a so-called
 LNB (low noise block) in the focus of the parabol antenna which converts the 10 GHz signal down
 to about 740 MHz. The setup for defining the "QO100" transverter band is shown in Fig.
-\ref{fig:QO100-XVTR}.
-
-The LO (local oscillator) frequency is always chosen such that it is below the RX frequency,
-and the difference between the RX frequency and the LO frequency is the frequency the radio
-is operating on. The name (here: QO100) can be chosen as one likes, but it cannot be left
-empty. Once the transverter band has been defined, it shows up in the \bltt{BAND} menu
-(see Chapter \ref{sec:bandmenu}), as shown in Fig. \ref{fig:QO100-BandMenu}.
+\ref{fig:QO100-XVTR}. Since the Adalm Pluto is operated via the SoapySDR interface, there are no check boxes
+for disabling the PA.
 
 \begin{figure}[ht]
 \center
@@ -1488,6 +1500,12 @@ empty. Once the transverter band has been defined, it shows up in the \bltt{BAND
 \caption{The \bltt{Band} menu after defining the QO100 band.}
 \label{fig:QO100-BandMenu}
 \end{figure}
+
+The LO (local oscillator) frequency is always chosen such that it is below the RX frequency,
+and the difference between the RX frequency and the LO frequency is the frequency the radio
+is operating on. The name (here: QO100) can be chosen as one likes, but it cannot be left
+empty. Once the transverter band has been defined, it shows up in the \bltt{BAND} menu
+(see Chapter \ref{sec:bandmenu}), as shown in Fig. \ref{fig:QO100-BandMenu}.
 
 To make QO-100 Operation easy, the working frequencies, the CTUN mode etc. should be
 stored in the first bandstack entry of the QO100 and the 13 cm band. To this end,
@@ -1500,18 +1518,22 @@ swap the VFOs again. SAT mode will now ensure the 10.489 GHz Receive
  the bands. The complicated swapping was necessary since band stack entries will
  only be stored from VFO-A.
 
-Fig. \ref{fig:QO100-Waterfall} gives an impression of how this actually works. Note that the
-default setup
-is working Split, Duplex and SAT. Split mode implies that VFO-B is used for transmitting.
-Duplex mode implies that the receiver continues to work while transmitting so you can watch
-and hear your own signal.
-The TX spectrum scope then appears during transmitting in a small separate window.
 \begin{figure}[ht]
 \center
 \includegraphics[width=12cm]{QO100-Waterfall.png}
 \caption{Working QO100 with piHPSDR and the Pluto.}
 \label{fig:QO100-Waterfall}
 \end{figure}
+
+Fig. \ref{fig:QO100-Waterfall} (a contribution from a ham using the Adalm Pluto for QO-100
+operation) gives an impression of how this actually works. 
+Note that the
+default setup
+is working Split, Duplex and SAT. Split mode implies that VFO-B is used for transmitting.
+Duplex mode implies that the receiver continues to work while transmitting so you can watch
+and hear your own signal.
+The TX spectrum scope then appears during transmitting in a small separate window.
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \chapter{The Main Menu: VFO-related menus}
@@ -2318,6 +2340,20 @@ PS feedback signal. It can be \rett{Internal} which means internal feedback
 TX/RX relay), or it can be \rett{Ext1} or \rett{ByPass} which refers to the
 auxiliary antenna jacks.
 
+\rett{PS MAP} This box controls the PURESIGNAL ,,Map mode'' and is normally checked. 
+According to the WDSP manual, changing the Map mode allows easier calibration in
+situations where a very poor PA is driven into heavy gain compression. The state
+of this box has
+no effect if there is no compression. \textit{PS is stopped and re-started if
+this box is changed.}
+
+\rett{PS Relax Tolerance} This box is normally unchecked which means that the default
+value 0.8 is used for the PURESIGNAL calibration tolerance. If checked, this tolerance
+is reduced to 0.4. According to the WDSP manual, relaxing the tolerance my be helpful
+for PAs with a very poor load regulation in the power supply such that there are
+severe and slow memory effects. \textit{PS is stopped and re-started if
+this box is changed.}
+ 
 \begin{figure}[ht]
 \center
 \includegraphics[width=12cm]{PSnomon.png}
@@ -2353,10 +2389,29 @@ If not, the RF input attenuators are set to maximum attenution while transmittin
 PA is enabled.
 
 \rett{SetPk} This field shows the currently assumed value of the peak value of the TX DAC
-feedback signal. piHPSDR chooses is automatically. It should match the value reported
+feedback signal. piHPSDR chooses is automatically, depending on the radio hardware.
+The standard value for P1 and P2 radios are 0.407 and 0.290. Notable exceptions are
+the HermesLite-II running P1 (SetPK=0.240) and the Anan-G2 running P2 (SetPK=0.612).
+The SetPK value is determined by the FPGA firmware of the radio can can experimentally
+be determined by comparing the outgoing TX and the incoming TX feedback signal.
+ It should match the value reported
 by the calibration algorithm in the GetPk field. The  value
 chosen by piHPSDR can be incorrect if you use a highly experimental firmware on your
 HPSDR board with modified TX DAC filters, but this should normally not happen.
+
+If you want to use PURESIGNAL, it is required to enable PURESIGNAL by checking the
+\rett{Enable PS} box, and it is recommended to use auto calibration (check the
+\rett{Auto Attenuate} box). PURESIGNAL is then activated and calibrated by
+performing a two-tone experiment. This can, but need not be, done by hitting
+the \rett{Two Tone} button. PURESIGNAL restarting and calibration is also done
+if a two-tone experiment is started via a GPIO/MIDI or toolbar button.
+It is necessary to repeat such a two-tone experiment each time you change the
+RF output power, since most likely a new TX attenuation value is needed. I also
+recommend to repeat a two-tone experiment after each band change. If monitoring
+the feedback signal (\rett{MON} button, this setting remains after closing the
+PS menu) is enabled, a two-tone experiment also quickly shows how effective 
+the adaptive predistortion is. If everything works well, you only should see
+two peaks on the TX panadapter during the two-tone experiment.
 
 \begin{figure}[t!]
 \center
@@ -2365,27 +2420,32 @@ HPSDR board with modified TX DAC filters, but this should normally not happen.
 \label{fig:PSoff}
 \end{figure}
 
-To demonstrate what happens, I show an example. Checking both \rett{Enable PS} and
+To demonstrate what happens, I show an example performed with a HermesLite-II
+radio running P1. Checking both \rett{Enable PS} and
 \rett{Auto Attenuation}, and hitting the \rett{Two Tone} button, it needs only few
 seconds to stabilize and then Fig. \ref{fig:PSnomon} results, where the TX
 spectrum scope and the PS menu window have been arranged such that they do
 not cover each other. Although both the PS menu and the spectrum scope state
 that PS is working and correcting, the signal does not look good: a two-tone
-signal should only have two peaks! The reason is, that the TX spectrum scope
+signal should only have two peaks, but here one sees the two main peaks at $-6$ dBm
+and two IM3 satellites at about $-42$ dBm.
+The reason is, that the TX spectrum scope
 normally shows the signal that is sent to the PA, so we see a distorted signal.
 However this distortion is magically exactly such that the PA makes a nice signal
-out of this (\textit{adaptive predistortion}) . If one wants to see what the antenna
+out of this (\textit{adaptive predistortion}). If one wants to see what the antenna
  is actually transmitting, one must
 push the \rett{MON} button such that it is highlighted. 
 This is shown in Fig. \ref{fig:PSmon}, where one sees the
 feedback signal, that is, what the PA sends to the antenna.
-This is a rather clean two-tone signal (no satellites can be seen,
-the IM3 value is better than 50 dBc). To demonstrate how effective the PS algorithm is,
+This is a much cleaner two-tone signal (the first satellites are at $-56$ dBm,
+the IM3 value is about $-50$ dBc). To demonstrate how effective the PS algorithm is,
 I have pushed the \rett{OFF} button which stops the PureSignal calibration, the result
 is shown in Fig. \ref{fig:PSoff}. After hitting that button, IM3 satellites immediately
-grow out of the dust and rise to
-about 30 dBc, which reflects the non-linearity of the PA. Note that this is quite a typical
-values. Unless you have a class-A amplifier, your PA probably won't be much better.
+grow and rise to about $-40$ dbM (which means IM3
+about $-34$ dBc), which is s reflects the intrinsic
+non-linearity of the PA.
+ Note that this is a very good value,
+unless you have a class-A amplifier, your PA probably won't be much better.
 This shows that adaptive predistortion is a mechanism that allows you to produce a clean
 signal with a quality that would be impossible (or \textit{very} difficult) to achieve
 with traditional hardware.
@@ -3592,32 +3652,8 @@ produces zero-amplitude audio output.}
 \action{NumPad 0}{0}{B}{Used for direct frequency entry. This is the same as hitting the corresponding
 button ,,0'' in the \texttt{VFO} (VFO) menu.}
 
-\action{NumPad 1}{1}{B}{Used for direct frequency entry. This is the same as hitting the corresponding
-button ,,1'' in the \texttt{VFO} menu.}
-
-\action{NumPad 2}{2}{B}{Used for direct frequency entry. This is the same as hitting the corresponding
-button ,,2'' in the \texttt{VFO} menu.}
-
-\action{NumPad 3}{3}{B}{Used for direct frequency entry. This is the same as hitting the corresponding
-button ,,3'' in the \texttt{VFO} menu.}
-
-\action{NumPad 4}{4}{B}{Used for direct frequency entry. This is the same as hitting the corresponding
-button ,,4'' in the \texttt{VFO} menu.}
-
-\action{NumPad 5}{5}{B}{Used for direct frequency entry. This is the same as hitting the corresponding
-button ,,5'' in the \texttt{VFO} menu.}
-
-\action{NumPad 6}{6}{B}{Used for direct frequency entry. This is the same as hitting the corresponding
-button ,,6'' in the \texttt{VFO} menu.}
-
-\action{NumPad 7}{7}{B}{Used for direct frequency entry. This is the same as hitting the corresponding
-button ,,7'' in the \texttt{VFO} menu.}
-
-\action{NumPad 8}{8}{B}{(Used for direct frequency entry. This is the same as hitting the corresponding
-button ,,8'' in the \texttt{VFO}  menu.}
-
-\action{NumPad 9}{9}{B}{Used for direct frequency entry. This is the same as hitting the corresponding
-button ,,9'' in the \texttt{VFO}  menu.}
+\action{NumPad 1$\ldots$NumPad 9}{1$\ldots$9}{B}{The same as \bltt{NumPad 0}, except that digits
+(button)  ,,1'' through ,,9'' are referred to.}
 
 \action{NumPad BS}{BS}{B}{Used for direct frequency entry (BS = backstep). This is the same as hitting the
 corresponding button  in the \texttt{VFO} menu. It cancels the last-entered digit.}
@@ -3683,13 +3719,8 @@ the press and release events are significant.}
 
 \action{Rcl 0}{RCL0}{B}{Recall (restore) data from the memory slot 0 (see the \bltt{Memory} menu, Chapter \ref{sec:memmenu}).}
 
-\action{Rcl 1}{RCL1}{B}{Recall (restore) data from the memory slot 1 (see the \bltt{Memory} menu, Chapter \ref{sec:memmenu}).}
-
-\action{Rcl 2}{RCL2}{B}{Recall (restore) data from the memory slot 2 (see the \bltt{Memory} menu, Chapter \ref{sec:memmenu}).}
-
-\action{Rcl 3}{RCL3}{B}{Recall (restore) data from the memory slot 3 (see the \bltt{Memory} menu, Chapter \ref{sec:memmenu}).}
-
-\action{Rcl 4}{RCL4}{B}{Recall (restore) data from the memory slot 4 (see the \bltt{Memory} menu, Chapter \ref{sec:memmenu}).}
+\action{Rcl 1$\ldots$Rcl 9}{RCL1$\ldots$RCL9}{B}{The same as \bltt{Rcl 0}, except that memory slots 1 through 9
+are referred to.}
 
 \action{RF Gain}{RFGAIN}{PE}{Set the gain of the RF front end of the active receiver. Only effective for
 radios that have such a
@@ -3800,8 +3831,9 @@ OC menu).}
 \action{TX Drive}{TXDRV}{PE}{Set the TX drive level (0-100).}
 
 \action{Two-Tone}{2TONE}{B}{Toggle (on/off) the two-tone state of the transmitter. If the two-tone state is
-engaged, the radio will go
-TX and emit a two-tone signal.}
+engaged, the radio will go TX and emit a two-tone signal. If PURESIGNAL is enabled with auto calibration,
+then the PURESIGNAL engine will be restarted and the attenuation of the feedback
+signal re-adjusted while the two-tone signal is being sent.}
 
 \action{VFO}{VFO}{E}{This is  the VFO frequency control of the active receiver.}
 
@@ -3946,7 +3978,7 @@ step size.
 the VFO that is \textit{not} controlling the active receiver, up by 10 times the VFO step size.
 
 \rett{D} Hitting a upper-caps letter ,,D'' moves the VFO frequency of the ,,other'' VFO, that is,
-the VFO that is \textit{not} controlling the active receiver, up by 10 times the VFO step size.
+the VFO that is \textit{not} controlling the active receiver, down by 10 times the VFO step size.
 
 This (U/D) is for stations chasing DX and using split mode. One can tune to the DX station,
 then copy the VFO of the active receiver to the other one using \bltt{A>B} or \bltt{A<B}, then then
@@ -3985,7 +4017,7 @@ set, which can easily be found on the internet (see the Appendix of the Kenwood 
 and will not be reproduced here
 for copyright reasons. So if you want to connect a logbook
 or contest logging program to piHPSDR, you will normally tell this program that it has to control a Kenwood
-TS-2000.
+TS-2000. See the last section of this Appendix for some special CW features.
 
 \begin{center}
 \fbox{
@@ -4036,6 +4068,40 @@ changes (active receiver,  diversity status, PTT status, TUNE mode, PS status, C
 status, and LOCK status),
 such that the ANDROMEDA controller can update the corresponding LEDs.
 
+\section{Special characters in CAT CW}
+
+CW can be sent via the Kenwood CAT command \texttt{KY} as usual. The opening and closing brackets, \texttt{[} and
+\texttt{]}, which are not normally used in CW, have been given a special meaning. This is an extension
+of the Kenwood protocol. Currently implemented is
+a possibility to temporarily change the CW speed for certain characters, and to send characters without
+inter-character separation. An opening bracket starts the ,,special mode'' and a closing bracket ends it.
+Any special mode automatically ends if the radio goes RX after the message has been sent, or if a
+Morse key has been hit and CAT CW is terminated.
+
+\textbf{Speed change.} The two-character sequence \texttt{[+} temporarily increases the speed by 25\%,
+ while the sequence 
+\texttt{[-} temporarily reduces the speed by 25\%. For example, if the CW speed is 24 wpm and the text
+
+
+\texttt{DL0AAA [+ENN] [-123]}
+
+is sent via CAT CW, then the call sign will be sent at nominal (24 wpm) speed, while the report (enn) will be sent
+at 30 wpm and the serial number (123) will be sent at 18 wpm. The inter-word separations are those of
+the nominal speed (24 wpm) since they are outside of the brackets.
+Such speed changes are often used in contests,
+where the report is largely redundant and one wants to be nice to stations which have difficulties
+with the normal contest speed. From this example, it is clear that
+such in-line speed changes are primarily used if piHPSDR is keyed by a contest logger through CAT CW
+messages. The nominal speed can be changed either via the CAT command \texttt{KS} or via
+the \bltt{CW} menu. The nominal speed change becomes effective immedeately, which can be in the middle
+of an on-going CW transmission. This will not change the speed if it is made temporarily faster or slower,
+since once one goes ,,slow'' or ,,fast'' this speed is fixed until a closing bracket or the end of the
+transmission is seen. 
+
+\textbf{Character joining.} The two-character sequence \texttt{[.}  leads to a suppression of inter-character spacing until
+a closing bracket is met or the radio goes RX at the end of the transmission.
+For example, the string \texttt{[.ar]} is transmitted exactly as if it were a plus sign. Another example
+for a joined character is \texttt{[.sk]} which is sometimes used to mark the end of a transmission.    
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \chapter[Connect a Morse Key]{How to connect a Morse key or paddle}

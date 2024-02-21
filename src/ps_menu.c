@@ -40,37 +40,12 @@ static GtkWidget *get_pk;
 static GtkWidget *set_pk;
 static GtkWidget *tx_att;
 static GtkWidget *tx_att_spin;
-static int tx_att_min, tx_att_max;
 
 static double pk_val;
 static char   pk_text[16];
 
-/*
- * PureSignal 2.0 parameters and declarations
- */
-
-static double ampdelay  = 150e-9;   // 150 nsec
-static int    ints      = 16;
-static int    spi       = 256;     // ints=16/spi=256 corresponds to "TINT=0.5 dB"
-static int    stbl      = 0;       // "Stbl" un-checked
-static int    map       = 1;       // "Map"  checked
-static int    pin       = 1;       // "Pin"  checked
-static double ptol      = 0.8;     // "Relax Tolerance" un-checked
-static double moxdelay  = 0.2;     // "MOX Wait" 0.2 sec
-static double loopdelay = 0.0;     // "CAL Wait" 0.0 sec
-
 //
-// The following declarations are missing in wdsp.h
-// We put them here because sooner or later there will be
-// a corrected version of WDSP where this is contained
-//
-extern void SetPSIntsAndSpi (int channel, int ints, int spi);
-extern void SetPSStabilize (int channel, int stbl);
-extern void SetPSMapMode (int channel, int map);
-extern void SetPSPinMode (int channel, int pin);
-
-//
-// Todo: create buttons to change these values
+// Todo: create buttons to change PS 2.0 values
 //
 
 static int running = 0;
@@ -133,23 +108,137 @@ static void setpk_cb(GtkWidget *widget, gpointer data) {
 }
 
 //
-// This is called every 100 msec and therefore
-// must be a state machine
+// This is periodically when starting  a
+// two-tone experiment. If running PURESIGNAL
+// with auto calibration, this thread will
+// adjust the TX-ATT value. This thread also
+// updates the PS status. If PS is not enabled,
+// this is essentially a no-op.
+//
+int ps_calibration_timer(gpointer arg) {
+  guint *timer = (guint *)arg;
+  static int state = 1;
+
+  if (!transmitter->twotone) {
+    state = 1;  // start next TwoTone with a PS restart
+    *timer = 0;
+    return G_SOURCE_REMOVE;
+  }
+
+  if (transmitter->puresignal) {
+    int tx_att_min;
+    int tx_att_max;
+    static int old5 = 0;
+    int info[INFO_SIZE];
+
+    if (device == DEVICE_HERMES_LITE2 || device == NEW_DEVICE_HERMES_LITE2) {
+      tx_att_min = -29;
+      tx_att_max = 31;
+    } else {
+      tx_att_min = 0;
+      tx_att_max = 31;
+    }
+    GetPSInfo(transmitter->id, &info[0]);
+    //
+    // newcal is set to 1 if we have a new calibration value
+    // (info[5] is the calibration counter)
+    //
+    int newcal = 0;
+    if (info[5] !=  old5) {
+      old5 = info[5];
+      newcal = 1;
+    }
+    if (transmitter->auto_on) {
+      switch (state) {
+      case 0:
+
+         //
+         // A value of 165 means 0.7 dB too strong
+         // A value of 140 means 0.7 dB too weak
+         // So everything between 140 and 165 is accepted without changing the attenuation
+         //
+         if (newcal && ((info[4] > 165 && transmitter->attenuation < tx_att_max) || (info[4] < 140
+                        && transmitter->attenuation > tx_att_min))) {
+           int delta_att;
+           int new_att;
+
+          if (info[4] > 275) {
+            // If signal is very strong, increase attenuation by 15 dB
+            // Note the value is limited to about 300-350 due to ADC clipping/IQ overflow,
+            // so the feedback level might be much stronger than indicated here
+            delta_att = 15;
+
+             if (transmitter->attenuation < -15) { delta_att += 15; }
+           } else if (info[4] < 25) {
+             // If signal is very weak, decrease attenuation by 15 dB
+             delta_att = -15;
+           } else {
+             // calculate new delta, this mostly succeeds in one step
+             delta_att = (int) lround(20.0 * log10((double)info[4] / 152.293));
+           }
+
+           new_att = transmitter->attenuation + delta_att;
+
+          // keep new value of attenuation in allowed range
+          if (new_att < tx_att_min) { new_att = tx_att_min; }
+
+           if (new_att > tx_att_max) { new_att = tx_att_max; }
+
+           // A "PS reset" is only necessary if the attenuation
+           // has actually changed. This prevents firing "reset"
+           // constantly if the SDR board does not have a TX attenuator
+           // (in this case, att will fast reach tx_att_max and stay there if the
+           // feedback level is too high).
+           // Actually, we first adjust the attenuation (state=0),
+           // then do a PS reset (state=1), and then restart PS (state=2).
+           if (transmitter->attenuation != new_att) {
+             SetPSControl(transmitter->id, 1, 0, 0, 0);
+             transmitter->attenuation = new_att;
+             schedule_transmit_specific();
+             state = 1;
+           }
+         }
+
+         break;
+
+       case 1:
+         // Perform a PS reset and proceed to a PS restart
+         state = 2;
+         SetPSControl(transmitter->id, 1, 0, 0, 0);
+         break;
+
+       case 2:
+         // Perform a PS restart and proceed to the calibration loop
+         state = 0;
+         SetPSControl(transmitter->id, 0, 0, 1, 0);
+         break;
+      }
+    }
+  }
+  return G_SOURCE_CONTINUE;
+}
+
+//
+// This is called periodically so it must be a state machine.
+// If this thread is activated without the PS menu being
+// active, then no menu elements are accessed.
 //
 static int info_thread(gpointer arg) {
   int info[INFO_SIZE];
+  double pk;
   int newcal, newcorr;
   gchar label[20];
-  static int old5 = 0; // used to detect a new calibration attempt
+  static int old5 = 0;  // used to detect an increase of the calibration count
   static int old14 = 0; // used to detect change of "Correcting" status
 
   if (!running) {
-    return FALSE;
+    return G_SOURCE_REMOVE;
   }
 
   GetPSInfo(transmitter->id, &info[0]);
+  GetPSMaxTX(transmitter->id, &pk);
   //
-  // Set newcal if we have new feedbk info
+  // Set newcall if there is a new calibration
   // Set newcorr if "Correcting" status changed
   //
   newcal = 0;
@@ -245,79 +334,22 @@ static int info_thread(gpointer arg) {
 
   snprintf(label, 20, "%d", transmitter->attenuation);
   gtk_entry_set_text(GTK_ENTRY(tx_att), label);
-  double pk;
-  GetPSMaxTX(transmitter->id, &pk);
   snprintf(label, 20, "%6.3f", pk);
   gtk_entry_set_text(GTK_ENTRY(get_pk), label);
 
-  if (transmitter->auto_on) {
-    static int state = 0;
+  return G_SOURCE_CONTINUE;
+}
 
-    switch (state) {
-    case 0:
-
-      //
-      // A value of 165 means 0.7 dB too strong
-      // A value of 140 means 0.7 dB too weak
-      // So everything between 140 and 165 is accepted without changing the attenuation
-      //
-      if (newcal && ((info[4] > 165 && transmitter->attenuation < tx_att_max) || (info[4] < 140
-                     && transmitter->attenuation > tx_att_min))) {
-        int delta_att;
-        int new_att;
-
-        if (info[4] > 275) {
-          // If signal is very strong, increase attenuation by 15 dB
-          // Note the value is limited to about 300-350 due to ADC clipping/IQ overflow,
-          // so the feedback level might be much stronger than indicated here
-          delta_att = 15;
-        } else if (info[4] < 25) {
-          // If signal is very weak, decrease attenuation by 15 dB
-          delta_att = -15;
-        } else {
-          // calculate new delta, this mostly succeeds in one step
-          delta_att = (int) lround(20.0 * log10((double)info[4] / 152.293));
-        }
-
-        new_att = transmitter->attenuation + delta_att;
-
-        // keep new value of attenuation in allowed range
-        if (new_att < tx_att_min) { new_att = tx_att_min; }
-
-        if (new_att > tx_att_max) { new_att = tx_att_max; }
-
-        // A "PS reset" is only necessary if the attenuation
-        // has actually changed. This prevents firing "reset"
-        // constantly if the SDR board does not have a TX attenuator
-        // (in this case, att will fast reach tx_att_max and stay there if the
-        // feedback level is too high).
-        // Actually, we first adjust the attenuation (state=0),
-        // then do a PS reset (state=1), and then restart PS (state=2).
-        if (transmitter->attenuation != new_att) {
-          SetPSControl(transmitter->id, 1, 0, 0, 0);
-          transmitter->attenuation = new_att;
-          schedule_transmit_specific();
-          state = 1;
-        }
-      }
-
-      break;
-
-    case 1:
-      // Perform a PS reset and proceed to a PS restart
-      state = 2;
-      SetPSControl(transmitter->id, 1, 0, 0, 0);
-      break;
-
-    case 2:
-      // Perform a PS restart and proceed to the calibration loop
-      state = 0;
-      SetPSControl(transmitter->id, 0, 0, 1, 0);
-      break;
-    }
+//
+// Restart PS:
+// PS reset, wait 100 msec, PS resume
+//
+static void ps_off_on() {
+  if (transmitter->puresignal) {
+    SetPSControl(transmitter->id, 1, 0, 0, 0);
+    usleep(100000);
+    SetPSControl(transmitter->id, 0, 0, 1, 0);
   }
-
-  return TRUE;
 }
 
 //
@@ -360,6 +392,19 @@ static void enable_cb(GtkWidget *widget, gpointer data) {
       gtk_widget_hide(tx_att);
     }
   }
+}
+
+static void tol_cb(GtkWidget *widget, gpointer data) {
+  int tol = gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (widget));
+  transmitter->ps_ptol = tol ? 0.4 : 0.8;
+  SetPSPtol(transmitter->id, transmitter->ps_ptol);
+  ps_off_on();
+}
+
+static void map_cb(GtkWidget *widget, gpointer data) {
+  transmitter->ps_map = gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (widget));
+  SetPSMapMode(transmitter->id, transmitter->ps_map);
+  ps_off_on();
 }
 
 static void auto_cb(GtkWidget *widget, gpointer data) {
@@ -420,20 +465,6 @@ static void twotone_cb(GtkWidget *widget, gpointer data) {
 
 void ps_menu(GtkWidget *parent) {
   int i;
-
-  //
-  // Standard HPSDR gear has a step-attenuator that goes from 0-31 dB.
-  // The HermesLite has a "preamp" that goes from -12 to +48 dB,
-  // and this is mapped onto an "attenuation" for PS calibration
-  // that goes from +31 downto -29 dB
-  //
-  if (device == DEVICE_HERMES_LITE2 || device == NEW_DEVICE_HERMES_LITE2) {
-    tx_att_min = -29;
-    tx_att_max = 31;
-  } else {
-    tx_att_min = 0;
-    tx_att_max = 31;
-  }
 
   dialog = gtk_dialog_new();
   g_signal_connect (dialog, "destroy", G_CALLBACK(close_cb), NULL);
@@ -529,6 +560,18 @@ void ps_menu(GtkWidget *parent) {
 
   my_combo_attach(GTK_GRID(grid), ps_ant_combo, col, row, 1, 1);
   g_signal_connect(ps_ant_combo, "changed", G_CALLBACK(ps_ant_cb), NULL);
+  col++;
+  GtkWidget *map_b = gtk_check_button_new_with_label("PS MAP");
+  gtk_widget_set_name(map_b, "boldlabel");
+  gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (map_b), transmitter->ps_map);
+  gtk_grid_attach(GTK_GRID(grid), map_b, col, row, 1, 1);
+  g_signal_connect(map_b, "toggled", G_CALLBACK(map_cb), NULL);
+  col++;
+  GtkWidget *tol_b = gtk_check_button_new_with_label("PS Relax Tolerance");
+  gtk_widget_set_name(tol_b, "boldlabel");
+  gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (tol_b), (transmitter->ps_ptol < 0.6));
+  gtk_grid_attach(GTK_GRID(grid), tol_b, col, row, 2, 1);
+  g_signal_connect(tol_b, "toggled", G_CALLBACK(tol_cb), NULL);
   row++;
   col = 0;
   feedback_l = gtk_label_new("Feedback Lvl");
@@ -622,22 +665,18 @@ void ps_menu(GtkWidget *parent) {
   tx_att = gtk_entry_new();
   gtk_grid_attach(GTK_GRID(grid), tx_att, col, row, 1, 1);
   gtk_entry_set_width_chars(GTK_ENTRY(tx_att), 10);
-  tx_att_spin = gtk_spin_button_new_with_range((double) tx_att_min, (double) tx_att_max, 1.0);
+  if (device == DEVICE_HERMES_LITE2 || device == NEW_DEVICE_HERMES_LITE2) {
+    tx_att_spin = gtk_spin_button_new_with_range(-29.0, 31.0, 1.0);
+  } else {
+    tx_att_spin = gtk_spin_button_new_with_range(  0.0, 31.0, 1.0);
+  }
   gtk_spin_button_set_value(GTK_SPIN_BUTTON(tx_att_spin), (double) transmitter->attenuation);
   gtk_grid_attach(GTK_GRID(grid), tx_att_spin, col, row, 1, 1);
   g_signal_connect(tx_att_spin, "value-changed", G_CALLBACK(att_spin_cb), NULL);
   gtk_container_add(GTK_CONTAINER(content), grid);
   sub_menu = dialog;
-  SetPSIntsAndSpi(transmitter->id, ints, spi);
-  SetPSStabilize(transmitter->id, stbl);
-  SetPSMapMode(transmitter->id, map);
-  SetPSPinMode(transmitter->id, pin);
-  SetPSPtol(transmitter->id, ptol);
-  SetPSMoxDelay(transmitter->id, moxdelay);
-  SetPSTXDelay(transmitter->id, ampdelay);
-  SetPSLoopDelay(transmitter->id, loopdelay);
   running = 1;
-  info_timer = g_timeout_add((guint) 100, info_thread, NULL);
+  info_timer = g_timeout_add((guint) 250, info_thread, NULL);
   gtk_widget_show_all(dialog);
 
   //

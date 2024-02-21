@@ -24,6 +24,7 @@
 #include <string.h>
 #include "radio.h"
 #include "vfo.h"
+#include "band.h"
 #include "waterfall.h"
 #ifdef CLIENT_SERVER
   #include "client_server.h"
@@ -99,7 +100,7 @@ waterfall_scroll_event_cb (GtkWidget      *widget,
 
 void waterfall_update(RECEIVER *rx) {
   int i;
-  float *samples;
+  const float *samples;
   long long vfofreq = vfo[rx->id].frequency; // access only once to be thread-safe
   int  freq_changed = 0;                    // flag whether we have just "rotated"
   int pan = rx->pan;
@@ -207,10 +208,14 @@ void waterfall_update(RECEIVER *rx) {
       p = pixels;
       samples = rx->pixel_samples;
       float wf_low, wf_high, rangei;
+      int id = rx->id;
+      int b = vfo[id].band;
+      const BAND *band = band_get_band(b);
+      int calib = rx_gain_calibration - band->gain;
       //
       // soffset contains all corrections due to attenuation, preamps, etc.
       //
-      soffset = (float)(rx_gain_calibration + adc[rx->adc].attenuation - adc[rx->adc].gain);
+      soffset = (float)(calib + adc[rx->adc].attenuation - adc[rx->adc].gain);
 
       if (filter_board == ALEX && rx->adc == 0) {
         soffset += (float)(10 * rx->alex_attenuation - 20 * rx->preamp);

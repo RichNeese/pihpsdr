@@ -107,7 +107,6 @@ static gboolean panadapter_scroll_event_cb(GtkWidget *widget, GdkEventScroll *ev
 
 void rx_panadapter_update(RECEIVER *rx) {
   int i;
-  int x1, x2;
   float *samples;
   cairo_text_extents_t extents;
   long long f;
@@ -132,7 +131,9 @@ void rx_panadapter_update(RECEIVER *rx) {
   // Perhaps some adjustment is necessary for those old radios which have
   // switchable preamps.
   //
-  soffset = (double)rx_gain_calibration + (double)adc[rx->adc].attenuation - adc[rx->adc].gain;
+  const BAND *band = band_get_band(vfoband);
+  int calib = rx_gain_calibration - band->gain;
+  soffset = (double) calib + (double)adc[rx->adc].attenuation - adc[rx->adc].gain;
 
   if (filter_board == ALEX && rx->adc == 0) {
     soffset += (double)(10 * rx->alex_attenuation - 20 * rx->preamp);
@@ -149,7 +150,6 @@ void rx_panadapter_update(RECEIVER *rx) {
     mode = vfo[0].mode;
   }
 
-  const BAND *band = band_get_band(vfoband);
   long long half = (long long)rx->sample_rate / 2LL;
   double vfofreq = ((double) rx->pixels * 0.5) - (double)rx->pan;
 
@@ -176,8 +176,8 @@ void rx_panadapter_update(RECEIVER *rx) {
     for (i = 0; i < channel_entries; i++) {
       long long low_freq = band_channels_60m[i].frequency - (band_channels_60m[i].width / (long long)2);
       long long hi_freq = band_channels_60m[i].frequency + (band_channels_60m[i].width / (long long)2);
-      x1 = (low_freq - min_display) / (long long)HzPerPixel;
-      x2 = (hi_freq - min_display) / (long long)HzPerPixel;
+      double x1 = (double) (low_freq - min_display) / HzPerPixel;
+      double x2 = (double) (hi_freq - min_display) / HzPerPixel;
       cairo_set_source_rgba(cr, COLOUR_PAN_60M);
       cairo_rectangle(cr, x1, 0.0, x2 - x1, myheight);
       cairo_fill(cr);
@@ -294,18 +294,18 @@ void rx_panadapter_update(RECEIVER *rx) {
       cairo_set_line_width(cr, PAN_LINE_THICK);
 
       if ((min_display < band->frequencyMin) && (max_display > band->frequencyMin)) {
-        i = (band->frequencyMin - min_display) / (long long)HzPerPixel;
-        cairo_move_to(cr, i, 0);
-        cairo_line_to(cr, i, myheight);
+        double x = (double)(band->frequencyMin - min_display) / HzPerPixel;
+        cairo_move_to(cr, x, 0);
+        cairo_line_to(cr, x, myheight);
         cairo_set_line_width(cr, PAN_LINE_EXTRA);
         cairo_stroke(cr);
       }
 
       if ((min_display < band->frequencyMax) && (max_display > band->frequencyMax)) {
-        i = (band->frequencyMax - min_display) / (long long)HzPerPixel;
-        cairo_move_to(cr, i, 0);
-        cairo_line_to(cr, i, myheight);
-        cairo_set_line_width(cr, PAN_LINE_THICK);
+        double x = (double) (band->frequencyMax - min_display) / HzPerPixel;
+        cairo_move_to(cr, x, 0);
+        cairo_line_to(cr, x, myheight);
+        cairo_set_line_width(cr, PAN_LINE_EXTRA);
         cairo_stroke(cr);
       }
     }
@@ -591,7 +591,19 @@ void display_panadapter_messages(cairo_t *cr, int fps) {
     if (adc0_overload || adc1_overload) {
       static unsigned int adc_error_count = 0;
       cairo_move_to(cr, 100.0, 70.0);
-      cairo_show_text(cr, "ADC overload");
+
+      if (adc0_overload && !adc1_overload) {
+        cairo_show_text(cr, "ADC0 overload");
+      }
+
+      if (adc1_overload && !adc0_overload) {
+        cairo_show_text(cr, "ADC1 overload");
+      }
+
+      if (adc0_overload && adc1_overload) {
+        cairo_show_text(cr, "ADC0+1 overload");
+      }
+
       adc_error_count++;
 
       if (adc_error_count > 2 * fps) {
@@ -599,8 +611,8 @@ void display_panadapter_messages(cairo_t *cr, int fps) {
         adc0_overload = 0;
         adc1_overload = 0;
 #ifdef USBOZY
-        mercury_overload[0]=0;
-        mercury_overload[1]=0;
+        mercury_overload[0] = 0;
+        mercury_overload[1] = 0;
 #endif
       }
     }

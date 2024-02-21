@@ -630,7 +630,7 @@ void new_protocol_init(int pixels) {
 }
 
 static void new_protocol_general() {
-  BAND *band;
+  const BAND *band;
   int rc;
   pthread_mutex_lock(&general_mutex);
   int txvfo = get_tx_vfo();
@@ -690,13 +690,13 @@ static void new_protocol_general() {
 }
 
 static void new_protocol_high_priority() {
-  int i;
-  BAND *band;
-  long long rxFrequency[2];
-  long long txFrequency;
-  long long HPFfreq;  // frequency determining the HPF filters
-  long long LPFfreq;  // frequency determining the LPF filters
-  long long BPFfreq;  // frequency determining the BPF filters
+  int rxant, txant;
+  long long DDCfrequency[2];  // DDC frequencies of the radio
+  long long DUCfrequency;     // DUC frequency of the radio
+  long long txfreq;           // frequency used for out-of-band detection
+  long long HPFfreq;          // frequency determining the HPF filters
+  long long LPFfreq;          // frequency determining the LPF filters
+  long long BPFfreq;          // frequency determining the BPF filters
   unsigned long phase;
 
   if (data_socket == -1 && !have_saturn_xdma) {
@@ -705,11 +705,19 @@ static void new_protocol_high_priority() {
 
   pthread_mutex_lock(&hi_prio_mutex);
   memset(high_priority_buffer_to_radio, 0, sizeof(high_priority_buffer_to_radio));
-  int xmit     = isTransmitting();
+  //
+  // If piHPSDR is not (yet) transmitting, but a PTT signal came from the
+  // radio, set HighPrio data accoring to the TX state as early as possible.
+  // To this end, isTransmitting() is ORed with radio_ptt.
+  //
+  int xmit     = isTransmitting() | radio_ptt;
   int txvfo    = get_tx_vfo();        // VFO governing the TX frequency
   int rxvfo    = active_receiver->id; // id of the active receiver
   int othervfo = 1 - rxvfo;           // id of the "other" receiver (only valid if receivers > 1)
   int txmode   = get_tx_mode();
+  const BAND *txband = band_get_band(vfo[txvfo].band);
+  const BAND *rxband = band_get_band(vfo[rxvfo].band);
+
   high_priority_buffer_to_radio[0] = high_priority_sequence >> 24;
   high_priority_buffer_to_radio[1] = high_priority_sequence >> 16;
   high_priority_buffer_to_radio[2] = high_priority_sequence >> 8;
@@ -740,19 +748,19 @@ static void new_protocol_high_priority() {
   //  Set DDC frequencies for RX1 and RX0
   //
   for (int id = 0; id < 2; id++) {
-    rxFrequency[id] = vfo[id].frequency - vfo[id].lo;
+    DDCfrequency[id] = vfo[id].frequency - vfo[id].lo;
 
     if (vfo[id].rit_enabled) {
-      rxFrequency[id] += vfo[id].rit;
+      DDCfrequency[id] += vfo[id].rit;
     }
 
     if (vfo[id].mode == modeCWU) {
-      rxFrequency[id] -= (long long)cw_keyer_sidetone_frequency;
+      DDCfrequency[id] -= (long long)cw_keyer_sidetone_frequency;
     } else if (vfo[id].mode == modeCWL) {
-      rxFrequency[id] += (long long)cw_keyer_sidetone_frequency;
+      DDCfrequency[id] += (long long)cw_keyer_sidetone_frequency;
     }
 
-    rxFrequency[id] += frequency_calibration;
+    DDCfrequency[id] += frequency_calibration;
   }
 
   if (diversity_enabled && !xmit) {
@@ -761,7 +769,7 @@ static void new_protocol_high_priority() {
     // This is overridden later if we do PureSignal TX
     // The "obscure" constant 34.952533333333333333333333333333 is 4294967296/122880000
     //
-    phase = (unsigned long)(((double)rxFrequency[0]) * 34.952533333333333333333333333333);
+    phase = (unsigned long)(((double)DDCfrequency[0]) * 34.952533333333333333333333333333);
     high_priority_buffer_to_radio[9] = phase >> 24;
     high_priority_buffer_to_radio[10] = phase >> 16;
     high_priority_buffer_to_radio[11] = phase >> 8;
@@ -781,14 +789,14 @@ static void new_protocol_high_priority() {
     if (device == NEW_DEVICE_ANGELIA  || device == NEW_DEVICE_ORION ||
         device == NEW_DEVICE_ORION2 || device == NEW_DEVICE_SATURN) { ddc = 2; }
 
-    phase = (unsigned long)(((double)rxFrequency[0]) * 34.952533333333333333333333333333);
+    phase = (unsigned long)(((double)DDCfrequency[0]) * 34.952533333333333333333333333333);
     high_priority_buffer_to_radio[9 + (ddc * 4)] = phase >> 24;
     high_priority_buffer_to_radio[10 + (ddc * 4)] = phase >> 16;
     high_priority_buffer_to_radio[11 + (ddc * 4)] = phase >> 8;
     high_priority_buffer_to_radio[12 + (ddc * 4)] = phase;
 
     if (receivers > 1) {
-      phase = (unsigned long)(((double)rxFrequency[1]) * 34.952533333333333333333333333333);
+      phase = (unsigned long)(((double)DDCfrequency[1]) * 34.952533333333333333333333333333);
       high_priority_buffer_to_radio[13 + (ddc * 4)] = phase >> 24;
       high_priority_buffer_to_radio[14 + (ddc * 4)] = phase >> 16;
       high_priority_buffer_to_radio[15 + (ddc * 4)] = phase >> 8;
@@ -797,18 +805,18 @@ static void new_protocol_high_priority() {
   }
 
   //
-  //  Set DUC frequency
+  //  Set DUC frequency.
+  //  txfreq is the "on the air" frequency for out-of-band checking
   //
-  txFrequency = vfo[txvfo].frequency - vfo[txvfo].lo;
+  txfreq = vfo[txvfo].frequency;
 
-  if (vfo[txvfo].ctun) { txFrequency += vfo[txvfo].offset; }
+  if (vfo[txvfo].ctun) { txfreq += vfo[txvfo].offset; }
 
-  if (vfo[txvfo].xit_enabled) {
-    txFrequency += vfo[txvfo].xit;
-  }
+  if (vfo[txvfo].xit_enabled) { txfreq += vfo[txvfo].xit; }
 
-  txFrequency += frequency_calibration;
-  phase = (unsigned long)(((double)txFrequency) * 34.952533333333333333333333333333);
+  DUCfrequency = txfreq - vfo[txvfo].lo + frequency_calibration;
+
+  phase = (unsigned long)(((double)DUCfrequency) * 34.952533333333333333333333333333);
 
   if (xmit && transmitter->puresignal) {
     //
@@ -831,15 +839,23 @@ static void new_protocol_high_priority() {
   high_priority_buffer_to_radio[330] = phase >> 16;
   high_priority_buffer_to_radio[331] = phase >> 8;
   high_priority_buffer_to_radio[332] = phase;
-  int power = transmitter->drive_level;
+  int power = 0;
+  //
+  // Fast "out-of-band" check. If out-of-band, set TX drive to zero.
+  // This already happens during RX and is effective if the
+  // radio firmware makes a RX->TX transition (e.g. because a
+  // Morse key has been hit).
+  //
+  if ((txfreq >= txband->frequencyMin && txfreq <= txband->frequencyMax) || tx_out_of_band_allowed) {
+    power = transmitter->drive_level;
+  }
   high_priority_buffer_to_radio[345] = power & 0xFF;
 
   //
-  // OpenCollector outputs
+  // band specific OpenCollector outputs
   //
   if (xmit) {
-    band = band_get_band(vfo[txvfo].band);
-    high_priority_buffer_to_radio[1401] = band->OCtx << 1;
+    high_priority_buffer_to_radio[1401] = txband->OCtx << 1;
 
     if (tune) {
       if (OCmemory_tune_time != 0) {
@@ -855,8 +871,7 @@ static void new_protocol_high_priority() {
       }
     }
   } else {
-    band = band_get_band(vfo[rxvfo].band);
-    high_priority_buffer_to_radio[1401] = band->OCrx << 1;
+    high_priority_buffer_to_radio[1401] = rxband->OCrx << 1;
   }
 
   //
@@ -883,7 +898,24 @@ static void new_protocol_high_priority() {
   }
 
   //
-  //  ALEX bits
+  //  ALEX bits. Note the "Jan 2023 protocol update":
+  //  - the upper 16 bits of alex0 reflect the upper 16
+  //    bits of alex1 for the "TX case". So if transmitting,
+  //    these are the same, but if receiving, these bits
+  //    have the state they would have during transmit.
+  //    This applies to
+  //    ALEX_TX_ANTENNA_1
+  //    ALEX_TX_ANTENNA_2
+  //    ALEX_TX_ANTENNA_3
+  //    ALEX_30_20_LPF
+  //    ALEX_60_40_LPF
+  //    ALEX_80_LPF
+  //    ALEX_160_LPF
+  //    ALEX_6_BYPASS_LPF
+  //    ALEX_12_10_LPF
+  //    ALEX_17_15_LPF
+  //    ALEX_TX_RELAY
+  //    ALEX_PS_BIT
   //
   unsigned long alex0 = 0x00000000;
   unsigned long alex1 = 0x00000000;
@@ -914,23 +946,24 @@ static void new_protocol_high_priority() {
   //
   // T/R relay and PS bit
   //
-  if (xmit) {
-    //
-    //    Do not switch TR relay to "TX" if PA is disabled.
-    //    This is necessary because the "PA enable flag" in the GeneralPacket
-    //    had no effect in the Orion-II firmware up to 2.1.18
-    //    (meanwhile it works: thanks to Rick N1GP)
-    //    But we have to keep this "safety belt" for some time.
-    //
-    local_pa_enable = 0;
-    if (!band->disablePA  && pa_enabled) {
-      local_pa_enable = 1;
-      alex0 |= ALEX_TX_RELAY;
-    }
+  //
+  //    Do not switch TR relay to "TX" if PA is disabled.
+  //    This is necessary because the "PA enable flag" in the GeneralPacket
+  //    had no effect in the Orion-II firmware up to 2.1.18
+  //    (meanwhile it works: thanks to Rick N1GP)
+  //    But we have to keep this "safety belt" for some time.
+  //
+  local_pa_enable = 0;
 
-    if (transmitter->puresignal) {
-      alex0 |= ALEX_PS_BIT;            // Bit 18
-    }
+  if (!txband->disablePA  && pa_enabled) {
+    local_pa_enable = 1;
+    if (xmit) { alex0 |= ALEX_TX_RELAY; }
+    alex1 |= ALEX_TX_RELAY;
+  }
+
+  if (transmitter->puresignal) {
+    if (xmit) {alex0 |= ALEX_PS_BIT; }
+    alex1 |= ALEX_PS_BIT;
   }
 
   //
@@ -952,16 +985,16 @@ static void new_protocol_high_priority() {
 
     if (receivers > 1) {
       if (receiver[othervfo]->adc == 0) {
-        BPFfreq = rxFrequency[othervfo];   // Take frequency of non-active receiver
+        BPFfreq = DDCfrequency[othervfo];   // Take frequency of non-active receiver
       }
     }
 
     if (receiver[rxvfo]->adc == 0) {
-      BPFfreq = rxFrequency[rxvfo];       // Take (overwrite with) frequency of active receiver
+      BPFfreq = DDCfrequency[rxvfo];       // Take (overwrite with) frequency of active receiver
     }
 
     if (diversity_enabled) {
-      BPFfreq = rxFrequency[0];
+      BPFfreq = DDCfrequency[0];
     }
 
     if (adc0_filter_bypass) {
@@ -991,16 +1024,16 @@ static void new_protocol_high_priority() {
 
     if (receivers > 1) {
       if (receiver[othervfo]->adc == 1) {
-        BPFfreq = rxFrequency[othervfo];   // Take frequency of non-active receiver
+        BPFfreq = DDCfrequency[othervfo];   // Take frequency of non-active receiver
       }
     }
 
     if (receiver[rxvfo]->adc == 1) {
-      BPFfreq = rxFrequency[rxvfo];       // Take (overwrite with) frequency of active receiver
+      BPFfreq = DDCfrequency[rxvfo];       // Take (overwrite with) frequency of active receiver
     }
 
     if (diversity_enabled) {
-      BPFfreq = rxFrequency[0];
+      BPFfreq = DDCfrequency[0];
     }
 
     if (adc1_filter_bypass) {
@@ -1043,12 +1076,12 @@ static void new_protocol_high_priority() {
     HPFfreq = 0LL;
 
     if (receiver[0]->adc == 0) {
-      HPFfreq = rxFrequency[0];
+      HPFfreq = DDCfrequency[0];
     }
 
     if (receivers > 1) {
-      if (receiver[1]->adc == 0 && rxFrequency[1] < rxFrequency[0]) {
-        HPFfreq = rxFrequency[1];
+      if (receiver[1]->adc == 0 && DDCfrequency[1] < DDCfrequency[0]) {
+        HPFfreq = DDCfrequency[1];
       }
     }
 
@@ -1085,18 +1118,18 @@ static void new_protocol_high_priority() {
   //                      of rx1freq and rx2freq. If TXing, the TX freq governs the LPF
   //                      in either case.
   //
-  LPFfreq = txFrequency;
+  LPFfreq = DUCfrequency;
 
   if (!xmit && (device != NEW_DEVICE_ORION2 && device != NEW_DEVICE_SATURN) && receiver[0]->alex_antenna < 3) {
     LPFfreq = 40000000LL;  // disable the LPF
 
     if (receiver[0]->adc == 0) {
-      LPFfreq = rxFrequency[0];
+      LPFfreq = DDCfrequency[0];
     }
 
     if (receivers > 1) {
-      if (receiver[1]->adc == 0 && rxFrequency[1] > rxFrequency[0]) {
-        LPFfreq = rxFrequency[1];
+      if (receiver[1]->adc == 0 && DDCfrequency[1] > DDCfrequency[0]) {
+        LPFfreq = DDCfrequency[1];
       }
     }
 
@@ -1122,6 +1155,25 @@ static void new_protocol_high_priority() {
   }
 
   //
+  // Set LPF in alex1 word according to DUC frequency
+  //
+  if (DUCfrequency > 35600000LL) {
+    alex1 |= ALEX_6_BYPASS_LPF;
+  } else if (DUCfrequency > 24000000LL) {
+    alex1 |= ALEX_12_10_LPF;
+  } else if (DUCfrequency > 16500000LL) {
+    alex1 |= ALEX_17_15_LPF;
+  } else if (DUCfrequency > 8000000LL) {
+    alex1 |= ALEX_30_20_LPF;
+  } else if (DUCfrequency > 5000000LL) {
+    alex1 |= ALEX_60_40_LPF;
+  } else if (DUCfrequency > 2500000LL) {
+    alex1 |= ALEX_80_LPF;
+  } else {
+    alex1 |= ALEX_160_LPF;
+  }
+
+  //
   //  Set bits that route Ext1/Ext2/XVRTin to the RX
   //
   //  If transmitting with PureSignal, we must use the alex_antenna
@@ -1130,17 +1182,17 @@ static void new_protocol_high_priority() {
   //  ANAN-7000 routes signals differently (these bits have no function on ANAN-80000)
   //            and uses ALEX0(14) to connnect Ext/XvrtIn to the RX.
   //
-  i = receiver[0]->alex_antenna;                      // 0,1,2  or 3,4,5
+  rxant = receiver[0]->alex_antenna;                      // 0,1,2  or 3,4,5
 
   if (xmit && transmitter->puresignal) {
-    i = receiver[PS_RX_FEEDBACK]->alex_antenna;     // 0, 6, or 7
+    rxant = receiver[PS_RX_FEEDBACK]->alex_antenna;     // 0, 6, or 7
   }
 
   if (device == NEW_DEVICE_ORION2 || device == NEW_DEVICE_SATURN) {
-    i += 100;
+    rxant += 100;
   } else if (new_pa_board) {
     // New-PA setting invalid on ANAN-7000,8000
-    i += 1000;
+    rxant += 1000;
   }
 
   //
@@ -1151,7 +1203,7 @@ static void new_protocol_high_priority() {
   // As a result, the "New PA board" setting is overriden for PureSignal
   // feedback: EXT1 assumes old PA board and ByPass assumes new PA board.
   //
-  switch (i) {
+  switch (rxant) {
   case 3:           // EXT1 with old pa board
   case 6:           // EXT1-on-TX: assume old pa board
   case 1006:
@@ -1199,46 +1251,36 @@ static void new_protocol_high_priority() {
   }
 
   //
-  //  Now we set the bits for Ant1/2/3 (RX and TX may be different)
-  //  ATTENTION:
-  //  When doing CW handled in radio, the radio may start TXing
-  //  before piHPSDR has slewn down the receivers, slewn up the
-  //  transmitter and goes TX. Then, if different Ant1/2/3
-  //  antennas are chosen for RX and TX, parts of the first
-  //  RF dot may arrive at the RX antenna and do bad things
-  //  there. While we cannot exclude this completely, we will
-  //  switch the Ant1/2/3 selection to TX as soon as we see
-  //  a PTT signal from the radio.
-  //  Measurements have shown that we can reduce the time
-  //  from when the radio send PTT to the time when the
-  //  radio receives the new Ant1/2/2 setup from about
-  //  40 (2 RX active) or 20 (1 RX active) to 4 milli seconds,
-  // and this should be
-  //  enough.
+  //  Now we set the bits for Ant1/2/3 (RX and TX may be different).
+  //  If receiving, let alex0 reflect the ANT1/2/3 setting for RX
+  //  and alex1 that for TX. If transmitting, both reflect TX.
   //
 
-  if (xmit || radio_ptt) {
-    i = transmitter->alex_antenna;
+  txant = transmitter->alex_antenna;
+  // ASSUMPTION: receiver[0] is associated with the first ADC
+  rxant = receiver[0]->alex_antenna;
 
-    //
-    // TX antenna outside allowd range: this cannot happen.
-    // Out of paranoia: print warning and choose ANT1
-    //
-    if (i < 0 || i > 2) {
-      t_print("WARNING: illegal TX antenna chosen, using ANT1\n");
-      transmitter->alex_antenna = 0;
-      i = 0;
-    }
-  } else {
-    i = receiver[0]->alex_antenna;
-
-    //
-    // Not using ANT1,2,3: can leave relais in TX state unless using new PA board
-    //
-    if (i > 2 && !new_pa_board) { i = transmitter->alex_antenna; }
+  //
+  // PARANOIA:
+  // TX antenna outside allowed range: this cannot happen.
+  // But we want to make *absolutely* sure that one of ANT1/2/2
+  // is actually switched. So in the "impossible" case of an
+  // illegal value for transmitter->alex_antenna, set it to ANT1.
+  //
+  if (txant < 0 || txant > 2) {
+    t_print("WARNING: illegal TX antenna chosen, using ANT1\n");
+    transmitter->alex_antenna = 0;
+    txant = 0;
   }
 
-  switch (i) {
+  //
+  // If *not* using ANT1,2,3 for RX: we can reduce "relay chatter"
+  // and leave the ANT1/2/2 setting in the TX state. If transmitting,
+  // use TX setting for alex0 anyway.
+  //
+  if (rxant > 2 || xmit) { rxant = txant; }
+
+  switch (rxant) {
   case 0:  // ANT 1
     alex0 |= ALEX_TX_ANTENNA_1;
     break;
@@ -1252,18 +1294,32 @@ static void new_protocol_high_priority() {
     break;
   }
 
+  switch (txant) {
+  case 0:  // ANT 1
+    alex1 |= ALEX_TX_ANTENNA_1;
+    break;
+
+  case 1:  // ANT 2
+    alex1 |= ALEX_TX_ANTENNA_2;
+    break;
+
+  case 2:  // ANT 3
+    alex1 |= ALEX_TX_ANTENNA_3;
+    break;
+  }
+ 
   high_priority_buffer_to_radio[1432] = (alex0 >> 24) & 0xFF;
   high_priority_buffer_to_radio[1433] = (alex0 >> 16) & 0xFF;
   high_priority_buffer_to_radio[1434] = (alex0 >> 8) & 0xFF;
   high_priority_buffer_to_radio[1435] = alex0 & 0xFF;
 
-  //t_print("ALEX0 bits:  %02X %02X %02X %02X for rx=%lld tx=%lld\n",high_priority_buffer_to_radio[1432],high_priority_buffer_to_radio[1433],high_priority_buffer_to_radio[1434],high_priority_buffer_to_radio[1435],rxFrequency,txFrequency);
+  //t_print("ALEX0 bits:  %02X %02X %02X %02X\n",high_priority_buffer_to_radio[1432],high_priority_buffer_to_radio[1433],high_priority_buffer_to_radio[1434],high_priority_buffer_to_radio[1435]);
 
-  if (device == NEW_DEVICE_ORION2 || device == NEW_DEVICE_SATURN) {
-    high_priority_buffer_to_radio[1430] = (alex1 >> 8) & 0xFF;
-    high_priority_buffer_to_radio[1431] = alex1 & 0xFF;
-    //t_print("ALEX1 bits: rx1: %02X %02X for rx=%lld\n",high_priority_buffer_to_radio[1430],high_priority_buffer_to_radio[1431],rxFrequency);
-  }
+  high_priority_buffer_to_radio[1428] = (alex1 >> 24) & 0xFF;
+  high_priority_buffer_to_radio[1429] = (alex1 >> 16) & 0xFF;
+  high_priority_buffer_to_radio[1430] = (alex1 >> 8) & 0xFF;
+  high_priority_buffer_to_radio[1431] = alex1 & 0xFF;
+  //t_print("ALEX0 bits:  %02X %02X %02X %02X\n",high_priority_buffer_to_radio[1428],high_priority_buffer_to_radio[1429],high_priority_buffer_to_radio[1430],high_priority_buffer_to_radio[1431]);
 
   //
   // ADC step attenuator of ADC0 and ADC1
@@ -1412,11 +1468,9 @@ static void new_protocol_transmit_specific() {
   // A value of 0..31 represents a LineIn gain of -12.0 .. 34.5 in 1.5 dB steps
   //
   transmit_specific_buffer[51] = (int)((linein_gain + 34.0) * 0.6739 + 0.5);
-
   //
   // Setting of the ADC0/ADC1 step attenuators while transmitting
   //
-
   transmit_specific_buffer[59] = adc[0].attenuation;
   transmit_specific_buffer[58] = diversity_enabled ? adc[0].attenuation : adc[1].attenuation;
 
@@ -2265,6 +2319,7 @@ static void process_high_priority() {
   int previous_dash;
   unsigned int val;
   int data;
+  int radio_cw;
   static GThread *tune_thread_id = NULL;
   //
   // variable used to manage analog inputs. The accumulators
@@ -2288,7 +2343,6 @@ static void process_high_priority() {
   previous_ptt = radio_ptt;
   previous_dot = radio_dot;
   previous_dash = radio_dash;
-
   radio_ptt  = (buffer[4]     ) & 0x01;
   radio_dot  = (buffer[4] >> 1) & 0x01;
   radio_dash = (buffer[4] >> 2) & 0x01;
@@ -2296,7 +2350,10 @@ static void process_high_priority() {
   //
   // Do this as fast as possible in case of a RX/TX  transition
   // induced by the radio (in case different RX/TX settings
-  // are valid for Ant1/2/3)
+  // are valid for Ant1/2/3). With the latest (Jan. 2024) protocol
+  // and firmware update, there is a 'real' solution to this problem,
+  // the this mechanism is kept for all those radios which do not yet
+  // have an updated firmware.
   //
   if (previous_ptt == 0 && radio_ptt == 1) {
     new_protocol_high_priority();
@@ -2333,7 +2390,14 @@ static void process_high_priority() {
   //
   // Stops CAT cw transmission if radio reports "CW action"
   //
-  if (radio_dash || radio_dot) {
+  radio_cw = 0;
+  if (device == NEW_DEVICE_ORION2 || device == NEW_DEVICE_SATURN) {
+    //
+    // These devices reflect a "keyer CW input" in bit 3 of byte59
+    // and this is active-high (!)
+    radio_cw = buffer[59] & 0x08;
+  }
+  if (radio_dash || radio_dot || radio_cw) {
     CAT_cw_is_active = 0;
     cw_key_hit = 1;
   }
@@ -2354,24 +2418,29 @@ static void process_high_priority() {
     } else {
       data = buffer[59] & 0x01;          // use IO4 (active=0) on all other gear
     }
+
     if (!TxInhibit && data == 0) {
       TxInhibit = 1;
       g_idle_add(ext_mox_update, GINT_TO_POINTER(0));
     }
+
     if (data == 1) { TxInhibit = 0; }
   } else {
-   TxInhibit = 0;
+    TxInhibit = 0;
   }
 
   if (enable_auto_tune) {
     data = (buffer[59] >> 2) & 0x01;  // use IO6 (active=0)
     auto_tune_end = data;
+
     if (data == 0 && !auto_tune_flag) {
       auto_tune_flag = 1;
       auto_tune_end  = 0;
+
       if (tune_thread_id) {
         g_thread_join(tune_thread_id);
       }
+
       tune_thread_id = g_thread_new("TUNE", auto_tune_thread, NULL);
     }
   } else {

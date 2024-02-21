@@ -59,15 +59,15 @@ extern long long frequency_calibration;
 extern char property_path[];
 
 enum _filter_board_enum {
- NO_FILTER_BOARD=0,
- ALEX,
- APOLLO,
- CHARLY25,
- N2ADR
+  NO_FILTER_BOARD = 0,
+  ALEX,
+  APOLLO,
+  CHARLY25,
+  N2ADR
 };
 
 enum _region_enum {
-  REGION_OTHER=0,
+  REGION_OTHER = 0,
   REGION_UK,
   REGION_WRC15  // 60m band allocation for countries implementing WRC15
 };
@@ -114,7 +114,7 @@ extern int atlas_janus;
 
 extern int classE;
 
-extern int tx_out_of_band;
+extern int tx_out_of_band_allowed;
 
 extern int filter_board;
 extern int pa_enabled;
@@ -298,7 +298,6 @@ extern void radioSaveState(void);
 
 extern void calculate_display_average(RECEIVER *rx);
 
-extern void radio_change_region(int region);
 extern void radio_set_satmode(int mode);
 
 extern void disable_rigctl(void);

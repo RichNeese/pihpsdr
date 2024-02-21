@@ -110,8 +110,9 @@ ACTION_TABLE ActionTable[] = {
   {CW_LEFT,             "CW Left",              "CWL",          MIDI_KEY   | CONTROLLER_SWITCH},
   {CW_RIGHT,            "CW Right",             "CWR",          MIDI_KEY   | CONTROLLER_SWITCH},
   {CW_SPEED,            "CW Speed",             "CWSPD",        MIDI_KNOB  | MIDI_WHEEL | CONTROLLER_ENCODER},
-  {CW_KEYER_KEYDOWN,    "CW Key\n(keyer)",      "CWKy",         MIDI_KEY   | CONTROLLER_SWITCH},
-  {CW_KEYER_PTT,        "PTT\n(CW keyer)",      "CWKyPTT",      MIDI_KEY   | CONTROLLER_SWITCH},
+  {CW_KEYER_KEYDOWN,    "CW Key\n(Keyer)",      "CWKy",         MIDI_KEY   | CONTROLLER_SWITCH},
+  {CW_KEYER_PTT,        "PTT\n(CW Keyer)",      "CWKyPTT",      MIDI_KEY   | CONTROLLER_SWITCH},
+  {CW_KEYER_SPEED,      "Speed\n(Keyer)",       "CWKySpd",      MIDI_KNOB},
   {DIV,                 "DIV On/Off",           "DIVT",         MIDI_KEY   | CONTROLLER_SWITCH},
   {DIV_GAIN,            "DIV Gain",             "DIVG",         MIDI_WHEEL | CONTROLLER_ENCODER},
   {DIV_GAIN_COARSE,     "DIV Gain\nCoarse",     "DIVGC",        MIDI_WHEEL | CONTROLLER_ENCODER},
@@ -182,6 +183,11 @@ ACTION_TABLE ActionTable[] = {
   {RCL2,                "Rcl 2",                "RCL2",         MIDI_KEY   | CONTROLLER_SWITCH},
   {RCL3,                "Rcl 3",                "RCL3",         MIDI_KEY   | CONTROLLER_SWITCH},
   {RCL4,                "Rcl 4",                "RCL4",         MIDI_KEY   | CONTROLLER_SWITCH},
+  {RCL5,                "Rcl 5",                "RCL5",         MIDI_KEY   | CONTROLLER_SWITCH},
+  {RCL6,                "Rcl 6",                "RCL6",         MIDI_KEY   | CONTROLLER_SWITCH},
+  {RCL7,                "Rcl 7",                "RCL7",         MIDI_KEY   | CONTROLLER_SWITCH},
+  {RCL8,                "Rcl 8",                "RCL8",         MIDI_KEY   | CONTROLLER_SWITCH},
+  {RCL9,                "Rcl 9",                "RCL9",         MIDI_KEY   | CONTROLLER_SWITCH},
   {RF_GAIN,             "RF Gain",              "RFGAIN",       MIDI_KNOB  | MIDI_WHEEL | CONTROLLER_ENCODER},
   {RF_GAIN_RX1,         "RF Gain\nRX1",         "RFGAIN1",      MIDI_KNOB  | MIDI_WHEEL | CONTROLLER_ENCODER},
   {RF_GAIN_RX2,         "RF Gain\nRX2",         "RFGAIN2",      MIDI_KNOB  | MIDI_WHEEL | CONTROLLER_ENCODER},
@@ -299,7 +305,8 @@ static inline double KnobOrWheel(const PROCESS_ACTION *a, double oldval, double 
     break;
 
   case ABSOLUTE:
-    oldval = minval + a->val * (maxval - minval) * 0.01;
+    // The magic floating point  constant is 1/127
+    oldval = minval + a->val * (maxval - minval) * 0.00787401574803150;
     break;
 
   default:
@@ -1009,14 +1016,14 @@ int process_action(void *data) {
 
     break;
 
-// multifunction encoder. If multi_select_active, it edits the assigned action; else implements assigned action.
+  // multifunction encoder. If multi_select_active, it edits the assigned action; else implements assigned action.
   case MULTI_ENC:
     multi_first = FALSE;
-    if(multi_select_active) {
-      multi_action = KnobOrWheel(a, multi_action, 0, VMAXMULTIACTION-1, 1);
+
+    if (multi_select_active) {
+      multi_action = KnobOrWheel(a, multi_action, 0, VMAXMULTIACTION - 1, 1);
       g_idle_add(ext_vfo_update, NULL);
-    }
-    else {
+    } else {
       PROCESS_ACTION *multifunction_action;
       multifunction_action = g_new(PROCESS_ACTION, 1);
       multifunction_action->mode = a->mode;
@@ -1024,16 +1031,15 @@ int process_action(void *data) {
       multifunction_action->action = multi_action_table[multi_action].action;
       process_action((void*)multifunction_action);
     }
+
     g_idle_add(ext_vfo_update, NULL);
     break;
-
 
   case MULTI_SELECT:                // know to choose the action for multifunction endcoder
     multi_first = FALSE;
-    multi_action = KnobOrWheel(a, multi_action, 0, VMAXMULTIACTION-1, 1);
+    multi_action = KnobOrWheel(a, multi_action, 0, VMAXMULTIACTION - 1, 1);
     g_idle_add(ext_vfo_update, NULL);
     break;
-
 
   case MUTE:
     if (a->mode == PRESSED) {
@@ -1245,6 +1251,11 @@ int process_action(void *data) {
   case RCL2:
   case RCL3:
   case RCL4:
+  case RCL5:
+  case RCL6:
+  case RCL7:
+  case RCL8:
+  case RCL9:
     if (a->mode == PRESSED) {
       recall_memory_slot(a->action - RCL0);
     }
@@ -1643,6 +1654,17 @@ int process_action(void *data) {
 
     break;
 
+  case CW_KEYER_SPEED:
+    //
+    // This is a MIDI message from a CW keyer. The MIDI controller
+    // value maps 1:1 to the speed, but we keep it within limits.
+    //
+    i = a->val;
+    if (i >= 1 && i <= 60) { cw_keyer_speed = i; }
+    keyer_update();
+    g_idle_add(ext_vfo_update, NULL);
+    break;
+
   case NO_ACTION:
     // do nothing
     break;
@@ -1700,6 +1722,7 @@ int  GetMultifunctionStatus() {
   if (multi_first) {
     return 0;
   }
+
   return multi_select_active ? 2 : 1;
 }
 
