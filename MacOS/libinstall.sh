@@ -109,6 +109,7 @@ $BREW install pkg-config
 $BREW install portaudio
 $BREW install fftw
 $BREW install libusb
+$BREW install cmake
 
 ################################################################
 #
@@ -120,11 +121,7 @@ $BREW install libusb
 # list produced, search for the same string using the
 # "search" facility of your internet browser
 #
-$BREW install cmake
-#
-# This may be necessary if an older version exists
-#
-$BREW uninstall soapysdr
+
 $BREW install pothosware/pothos/soapyplutosdr
 $BREW install pothosware/pothos/limesuite
 $BREW install pothosware/pothos/soapyrtlsdr
@@ -133,6 +130,7 @@ $BREW install pothosware/pothos/soapyairspyhf
 $BREW install pothosware/pothos/soapyhackrf
 $BREW install pothosware/pothos/soapyredpitaya
 $BREW install pothosware/pothos/soapyrtlsdr
+$BREW install pothosware/pothos/soapyplutosdr
 
 ################################################################
 #

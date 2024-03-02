@@ -18,7 +18,8 @@ brew install gtk+3
 brew install pkg-config
 brew install portaudio
 brew install fftw
-
+brew install libusb
+brew install cmake
 #
 # This is for the SoapySDR universe
 # There are even more radios supported for which you need
@@ -28,8 +29,7 @@ brew install fftw
 # list produced, search for the same string using the
 # "search" facility of your internet browser
 #
-brew install libusb
-brew install cmake
+
 brew install pothosware/pothos/soapysdr
 brew install pothosware/pothos/soapyplutosdr
 brew install pothosware/pothos/limesuite
@@ -39,9 +39,9 @@ brew install pothosware/pothos/soapyairspyhf
 brew install pothosware/pothos/soapyhackrf
 brew install pothosware/pothos/soapyredpitaya
 brew install pothosware/pothos/soapyrtlsdr
+brew install pothosware/pothos/soapyplutosdr
 
 #
 # This is for PrivacyProtection
 #
 brew analytics off
-
