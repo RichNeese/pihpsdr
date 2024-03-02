@@ -5,11 +5,11 @@
 # which reads AUDIO=YYYY with YYYY=ALSA or YYYY=PULSE.
 #
 #######################################################################################
-GPIO=ON
+GPIO=
 MIDI=ON
 SATURN=ON
 USBOZY=
-SOAPYSDR=
+SOAPYSDR=ON
 STEMLAB=
 EXTENDED_NR=
 SERVER=
@@ -39,13 +39,13 @@ UNAME_S := $(shell uname -s)
 UNAME_M := $(shell uname -m)
 
 ifeq ($(UNAME_S), Darwin)
-        MACAPPDIR=$HOME/Applications
+	MACAPPDIR=$HOME/Applications
 else
-        PREFIX?=/usr
-        APPSDIR=$(PREFIX)/share/applications
-        APPICONDIR=$(PREFIX)/share/pihpsdr
-        EXECDIR=$(PREFIX)/local/bin
-        ICONSDIR=$(PREFIX)/share/icons/pihpsdr
+	PREFIX?=/usr
+	APPSDIR=$(PREFIX)/share/applications
+	APPICONDIR=$(PREFIX)/share/pihpsdr
+	EXECDIR=$(PREFIX)/local/bin
+	ICONSDIR=$(PREFIX)/share/icons/pihpsdr
 endif
 
 # Get git commit version and date
@@ -721,7 +721,7 @@ endif
 gpio:
 #currently for raspbian only (working to fix on armbian setups)
 ifeq ($(UNAME_S), Linux)
-	 if test -f "/boot/config.txt"; then
+	if test -f "/boot/config.txt"; then
 		if grep -q "gpio=4-13,16-27=ip,pu" /boot/config.txt; then
 			echo "/boot/config.txt already contains gpio setup."
 		else
