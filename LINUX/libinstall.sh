@@ -1,195 +1,166 @@
 #!/bin/sh
 
-################################################################
+#####################################################
 #
-# A script to clone wdsp from github and to compile and 
-# install it. This is a prerequisite for compiling pihpsdr
+# prepeare your Mac  for compiling SDR++
 #
-################################################################
+######################################################
 
-################################################################
+#####################################################
 #
-# a) determine the location of THIS script
-#    (this is where the files should be located)
-#    and assume this is in the pihpsdr directory
+# ENABLE SOAPYSDR DRIVERS
+# if you enable all the soapy drivers it will disable the
+# default libs/drivers that allow use with out SoapySDR
 #
-################################################################
-
-SCRIPT_FILE=`realpath $0`
-THIS_DIR=`dirname $SCRIPT_FILE`
-TARGET=`dirname $THIS_DIR`
-WORKDIR='/tmp'
-
-################################################################
+# Defualt for all is N
 #
-# c) install lots of packages
-# (many of them should already be there)
+# Must be enable SOAPYSDR=Y to install SoapySDR and modules
 #
-################################################################
+######################################################
 
-# ------------------------------------
-# Install standard tools and compilers
-# ------------------------------------
-
-apt -y install build-essential
-apt -y install module-assistant
-apt -y install vim
-apt -y install make
-apt -y install gcc
-apt -y install g++
-apt -y install gfortran
-apt -y install git
-apt -y install gpiod
-apt -y install pkg-config
-apt -y install cmake
-apt -y install autoconf
-apt -y install autopoint
-apt -y install gettext
-apt -y install automake
-apt -y install libtool
-apt -y install cppcheck
-apt -y install dos2unix
-apt -y install libzstd-dev
-
-# ---------------------------------------
-# Install libraries necessary for piHPSDR
-# ---------------------------------------
-
-apt -y install libfftw3-dev
-apt -y install libgtk-3-dev
-apt -y install libasound2-dev
-apt -y install libcurl4-openssl-dev
-apt -y install libusb-1.0-0-dev
-apt -y install libi2c-dev
-apt -y install libgpiod-dev
-apt -y install libpulse-dev
-apt -y install pulseaudio
-
-# ----------------------------------------------
-# Install standard libraries necessary for SOAPY
-# ----------------------------------------------
-
-apt -y install libaio-dev
-apt -y install libavahi-client-dev
-apt -y install libad9361-dev
-apt -y install libiio-dev
-apt -y install bison
-apt -y install flex
-apt -y install libxml2-dev
-apt -y install librtlsdr-dev
+SOAPYSDR=N 
+SOAPYSDR_ALL_MODULES=N
+SOAPYAISPY=N
+SOAPYAISPYHF=N
+SOAPYHACKRF=N
+SOAPYLIMESUITE=N
+SOAPYREDPITAYA=N
+SOAPYPLUTOSDR=N
+SOAPYRTLSDR=N 
 
 ################################################################
 #
-# c) download and install SoapySDR core
+# a) MacOS does not have "realpath" so we need to fiddle around
 #
 ################################################################
 
-cd $THISDIR
-yes | rm -r SoapySDR
-git clone https://github.com/pothosware/SoapySDR.git
-
-cd $THISDIR/SoapySDR
-mkdir build
-cd build
-cmake -DCMAKE_INSTALL_PREFIX=/usr/local ..
-make -j 4
-make install
-ldconfig
+THISDIR="$(cd "$(dirname "$0")" && pwd -P)"
 
 ################################################################
 #
-# d) download and install libiio
-#    NOTE: libiio has just changed the API and SoapyPlutoSDR
-#          is not yet updated. So compile version 0.25, which
-#          is the last one with the old API
+# This adjusts the PATH. This is not bullet-proof, so if some-
+# thing goes wrong here, the user will later not find the
+# 'brew' command.
 #
 ################################################################
 
-################################################################
-#
-# e) download and install Soapy for Adalm Pluto
-#
-################################################################
-
-cd $THISDIR
-yes | rm -rf SoapyPlutoSDR
-git clone https://github.com/pothosware/SoapyPlutoSDR
-
-cd $WORKDIR/SoapyPlutoSDR
-mkdir build
-cd build
-cmake -DCMAKE_INSTALL_PREFIX=/usr/local ..
-make -j 4
-make install
-ldconfig
-
-################################################################
-#
-# f) download and install Soapy for RTL sticks
-#
-################################################################
-
-cd $WORKDIR
-rm -rf wdsp SoapyPlutoSDR
-
-cd $THISDIR/SoapyRTLSDR
-mkdir build
-cd build
-cmake -DCMAKE_INSTALL_PREFIX=/usr/local ..
-make -j 4
-sudo make install
-sudo ldconfig
-
-################################################################
-#
-# g) create desktop icons, start scripts, etc.  for pihpsdr
-#
-################################################################
-
-rm -f $HOME/Desktop/pihpsdr.desktop
-rm -f $HOME/.local/share/applications/pihpsdr.desktop
-
-cat <<EOT > $TARGET/pihpsdr.sh
-cd $TARGET
-$TARGET/pihpsdr >log 2>&1
-EOT
-chmod +x $TARGET/pihpsdr.sh
-
-cat <<EOT > $TARGET/pihpsdr.desktop
-#!/usr/bin/env xdg-open
-[Desktop Entry]
-Version=1.0
-Type=Application
-Terminal=false
-Name[eb_GB]=piHPSDR
-Exec=$TARGET/pihpsdr.sh
-Icon=$TARGET/hpsdr_icon.png
-Name=piHPSDR
-EOT
-
-cp $TARGET/pihpsdr.desktop $HOME/Desktop
-mkdir -p $HOME/.local/share/applications
-cp $TARGET/pihpsdr.desktop $HOME/.local/share/applications
-
-cp $TARGET/release/pihpsdr/hpsdr.png $TARGET
-cp $TARGET/release/pihpsdr/hpsdr_icon.png $TARGET
-
-################################################################
-#
-# h) default GPIO lines to input + pullup
-#
-################################################################
-
-if test -f "/boot/config.txt"; then
-  if grep -q "gpio=4-13,16-27=ip,pu" /boot/config.txt; then
-    echo "/boot/config.txt already contains gpio setup."
-  else
-    echo "/boot/config.txt does not contain gpio setup - adding it."
-    echo "Please reboot system for this to take effect."
-    cat <<EGPIO | sudo tee -a /boot/config.txt > /dev/null
-[all]
-# setup GPIO for pihpsdr controllers
-gpio=4-13,16-27=ip,pu
-EGPIO
-  fi
+if [ $SHELL == "/bin/sh" ]; then
+apt -y shellenv sh >> $HOME/.profile
 fi
+if [ $SHELL == "/bin/bash" ]; then
+apt -y shellenv csh >> $HOME/.bashrc
+fi
+if [ $SHELL == "/bin/csh" ]; then
+apt -y shellenv csh >> $HOME/.cshrc
+fi
+if [ $SHELL == "/bin/zsh" ]; then
+apt -y shellenv zsh >> $HOME/.zprofile
+fi
+
+################################################################
+#
+# All homebrew packages needed for SDR++
+#
+################################################################
+
+apt -y install gtk+3
+apt -y install pkg-config
+apt -y install portaudio
+apt -y install fftw
+apt -y install libusb
+apt -y install cmake
+apt -y install glfw
+apt -y install codec2
+apt -y install libiio
+apt -y install libad9361 
+apt -y install volk
+apt -y install python-mako
+apt -y install zstd
+
+#########################################################
+# Lib for bladerf
+#########################################################
+apt -y install libbladerf
+
+#########################################################
+# Lib for RTL_SDR
+#########################################################
+if [ SOAPYRTLSDR == N  ]; then
+	apt -y install rtl-sdr
+fi
+#########################################################
+# Lib for airspy / airspyhf
+# Disable if you want to us soapysdr drivers
+#########################################################
+if [ SOAPYAISPY == N ]; then
+	apt -y install airspy
+fi
+
+if [ SOAPYAISPYHF == N ]; then
+	apt -y install airspyhf
+fi
+
+#########################################################
+# Lib for hackers
+# Disable if you want to us soapysdr drivers
+#########################################################
+if [ SOAPYHACKRF == N ]; then
+	apt -y install hackrf
+fi
+
+#########################################################
+# Limes suite
+#########################################################
+if [ SOAPYLIMESUITE == N ]; then
+	apt -y install limesuite
+fi
+
+################################################################
+#
+# This is for the SoapySDR universe
+# There are even more radios supported for which you need
+# additional modules, for a list, goto the web page
+# https://formulae.brew.sh
+# and insert the search string "pothosware". In the long
+# list produced, search for the same string using the
+# "search" facility of your internet browser
+#
+################################################################
+if [ SOAPYSDR == Y ]; then
+
+	apt -y install soapysdr
+
+	if [ SOAPYSDR_ALL_MODULES == Y]; then
+		apt -y install soapy
+	fi
+
+	if [ SOAPYAIRSPY == Y]; then
+		apt -y install soapyairspy
+	fi
+
+	if [ SOAPYAISPYHF == Y ]; then
+		apt -y install soapyairspyhf
+	fi
+
+	if [ SOAPYHACKRF == Y ]; then
+		apt -y install soapyhackrf
+	fi
+
+	if [ SOAPYLIMESUITE == Y ]; then
+		apt -y install limesuite
+	fi
+
+	if [ SOAPYREDPITAYA == Y  ]; then	
+		apt -y install soapyredpitaya
+	fi
+
+	if [ SOAPYRTLSDR == Y  ]; then
+		apt -y install soapyrtlsdr
+	fi
+
+	if [ SOAPYPLUTOSDR == Y  ]; then
+		apt -y install soapyplutosdr
+	fi
+fi
+
+
