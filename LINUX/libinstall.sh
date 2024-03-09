@@ -1,166 +1,288 @@
 #!/bin/sh
 
-#####################################################
-#
-# prepeare your Mac  for compiling SDR++
-#
-######################################################
+# Dir for building pkgs
+mkdir tmp
 
 #####################################################
 #
-# ENABLE SOAPYSDR DRIVERS
-# if you enable all the soapy drivers it will disable the
-# default libs/drivers that allow use with out SoapySDR
-#
-# Defualt for all is N
-#
-# Must be enable SOAPYSDR=Y to install SoapySDR and modules
+# prepeare your Linux system for compiling piHPSDR
 #
 ######################################################
+echo "First we need to make sure dependancies are installed."
 
-SOAPYSDR=N 
-SOAPYSDR_ALL_MODULES=N
-SOAPYAISPY=N
-SOAPYAISPYHF=N
-SOAPYHACKRF=N
-SOAPYLIMESUITE=N
-SOAPYREDPITAYA=N
-SOAPYPLUTOSDR=N
-SOAPYRTLSDR=N 
+echo "There may be several packages to install.  This could"
+
+echo "take several minutes to complete."
 
 ################################################################
 #
-# a) MacOS does not have "realpath" so we need to fiddle around
+# All packages needed for SDR++
 #
 ################################################################
+echo "Installing Deps for building SDR++ / SDR++Brown"
+sudo apt -y install build-essential
+sudo apt -y install cmake
+sudo apt -y install pkg-config
+sudo apt -y install libcodec2-dev
+sudo apt -y install libgtk-3-dev
+sudo apt -y install portaudio19-dev
+sudo apt -y install libfftw3-dev
+sudo apt -y install libpulse-dev
+sudo apt -y install libsoundio-dev
+sudo apt -y install libasound2-dev
+sudo apt -y install libusb-dev
+sudo apt -y install libglfw3-dev
+sudo apt -y install libiio-dev
+sudo apt -y install libiio-utils
+sudo apt -y install libad9361-dev
+sudo apt -y install librtaudio-dev
+sudo apt -y install libvolk2-dev
+sudo apt -y install libvulkan-volk-dev
+sudo apt -y install libzstd-dev
+sudo apt -y install zstd
+echo "Done"
 
-THISDIR="$(cd "$(dirname "$0")" && pwd -P)"
-
-################################################################
-#
-# This adjusts the PATH. This is not bullet-proof, so if some-
-# thing goes wrong here, the user will later not find the
-# 'brew' command.
-#
-################################################################
-
-if [ $SHELL == "/bin/sh" ]; then
-apt -y shellenv sh >> $HOME/.profile
-fi
-if [ $SHELL == "/bin/bash" ]; then
-apt -y shellenv csh >> $HOME/.bashrc
-fi
-if [ $SHELL == "/bin/csh" ]; then
-apt -y shellenv csh >> $HOME/.cshrc
-fi
-if [ $SHELL == "/bin/zsh" ]; then
-apt -y shellenv zsh >> $HOME/.zprofile
-fi
-
-################################################################
-#
-# All homebrew packages needed for SDR++
-#
-################################################################
-
-apt -y install gtk+3
-apt -y install pkg-config
-apt -y install portaudio
-apt -y install fftw
-apt -y install libusb
-apt -y install cmake
-apt -y install glfw
-apt -y install codec2
-apt -y install libiio
-apt -y install libad9361 
-apt -y install volk
-apt -y install python-mako
-apt -y install zstd
+#########################################################
+# Python make
+#########################################################
+echo "INSTALLING MAKO FOR PYTHON3"
+sudo apt -y install python3-mako
+echo "Done"
 
 #########################################################
 # Lib for bladerf
 #########################################################
-apt -y install libbladerf
+echo "INSTALLING BLADERF"
+sudo apt -y install bladerf
+sudo apt -y install libbladerf-dev
+sudo apt -y install bladerf-firmware-fx3
+sudo apt -y install bladerf-fpga-hostedx115
+sudo apt -y install bladerf-fpga-hostedx40
+sudo apt -y install bladerf-fpga-hostedxa4
+sudo apt -y install bladerf-fpga-hostedxa5
+sudo apt -y install bladerf-fpga-hostedxa9
+echo "Done"
 
 #########################################################
 # Lib for RTL_SDR
 #########################################################
-if [ SOAPYRTLSDR == N  ]; then
-	apt -y install rtl-sdr
-fi
+echo "Installing RTL-SDR"
+sudo apt -y install librtlsdr-dev
+sudo apt -y install rtl-sdr
+echo "Done"
+
 #########################################################
 # Lib for airspy / airspyhf
 # Disable if you want to us soapysdr drivers
 #########################################################
-if [ SOAPYAISPY == N ]; then
-	apt -y install airspy
-fi
+echo "INSTALLING AIRSPY"
+sudo apt -y install airspy
+sudo apt -y install libairspy-dev
 
-if [ SOAPYAISPYHF == N ]; then
-	apt -y install airspyhf
-fi
+echo "Installing AIRSPYHF"
+sudo apt -y install airspyhf
+sudo apt -y install libairspyhf-dev
+echo "Done"
 
 #########################################################
 # Lib for hackers
 # Disable if you want to us soapysdr drivers
 #########################################################
-if [ SOAPYHACKRF == N ]; then
-	apt -y install hackrf
-fi
+echo "Installing HackRF"
+sudo apt -y install hackrf
+sudo apt -y install libhackrf-dev
+echo "Done"
 
 #########################################################
 # Limes suite
 #########################################################
-if [ SOAPYLIMESUITE == N ]; then
-	apt -y install limesuite
-fi
+echo "Installing LimeSuite"
+sudo apt -y install limesuite
+sudo apt -y install liblimesuite-dev
+echo "Done"
 
 ################################################################
 #
 # This is for the SoapySDR universe
-# There are even more radios supported for which you need
-# additional modules, for a list, goto the web page
-# https://formulae.brew.sh
-# and insert the search string "pothosware". In the long
-# list produced, search for the same string using the
-# "search" facility of your internet browser
+# This installs all the modules and firmware
+# 
 #
 ################################################################
-if [ SOAPYSDR == Y ]; then
+echo "Installing SoapySDR and Deps"
+sudo apt -y install libsoapysdr-dev
+sudo apt -y install soapysdr-module-all
+sudo apt -y install soapysdr-module-xtrx 
+sudo apt -y install soapysapt-cache search bladerf-*dr-tools
+sudo apt -y install libsoapysdr-doc
+sudo apt -y install uhd-host
+sudo apt -y install uhd-soapysdr
+sudo apt -y install soapysdr-module-uhd
+echo "Done"
 
-	apt -y install soapysdr
+################################################################
+# GIt the sdrplay soapy audio module and build it.
+################################################################
+echo " building and installing SoapyAudio"
+cd tmp
+git clone https://github.com/pothosware/SoapyAudio.git
+cd SoapyAudio
+mkdir build
+cd build
+cmake ..
+make
+sudo make install
+cd ~
+echo "Done"
 
-	if [ SOAPYSDR_ALL_MODULES == Y]; then
-		apt -y install soapy
-	fi
+################################################################
+# GIt the sdrplay SoapyRTLTCP module and build it.
+################################################################
+echo " building and installing SoapyRTLTCP"
+cd tmp
+git clone https://github.com/pothosware/SoapyRTLTCP.git
+cd SoapyRTLTCP
+mkdir build
+cd build
+cmake ..
+make
+sudo make install
+cd ~
+echo "Done"
 
-	if [ SOAPYAIRSPY == Y]; then
-		apt -y install soapyairspy
-	fi
+################################################################
+# GIt the sdrplay soapyPlutoSDR module and build it.
+################################################################
+echo " building and installing SoapyPlutoSDR"
+cd tmp
+git clone https://github.com/pothosware/SoapyPlutoSDR.git
+cd SoapyPlutoSDR
+mkdir build
+cd build
+cmake ..
+make
+sudo make install
+cd ~
+echo "Done"
 
-	if [ SOAPYAISPYHF == Y ]; then
-		apt -y install soapyairspyhf
-	fi
+################################################################
+# GIt the sdrplay soapyPlutoSDR module and build it.
+################################################################
+echo " building and installing SoapyMultiSDR"
+cd tmp
+git clone https://github.com/pothosware/SoapyMultiSDR.git
+cd SoapyMultiSDR
+mkdir build
+cd build
+cmake ..
+make
+sudo make install
+cd ~
+echo "Done"
 
-	if [ SOAPYHACKRF == Y ]; then
-		apt -y install soapyhackrf
-	fi
+################################################################
+# GIt the sdrplay soapy NestSDR module and build it.
+################################################################
+echo " building and installing SoapyNestSDR"
+cd tmp
+git clone https://github.com/pothosware/SoapyNestSDR.git
+cd SoapyNestSDR
+mkdir build
+cd build
+cmake ..
+make
+sudo make install
+cd ~
+echo "Done"
 
-	if [ SOAPYLIMESUITE == Y ]; then
-		apt -y install limesuite
-	fi
+################################################################
+# GIt the sdrplay soapyPlutoSDR module and build it.
+################################################################
+echo " building and installing SoapySpyServer"
+git clone https://github.com/pothosware/SoapySpyServer.git
+cd SoapySpyServer
+mkdir build
+cd build
+cmake ..
+make
+sudo make install
+cd ~
+echo "Done"
 
-	if [ SOAPYREDPITAYA == Y  ]; then	
-		apt -y install soapyredpitaya
-	fi
+################################################################
+# GIt the sdrplay soapyPlutoSDR module and build it.
+################################################################
+echo " building and installing SoapyVOLKConverters"
+git clone https://github.com/pothosware/SoapyVOLKConverters.git
+cd SoapyVOLKConverters
+mkdir build
+cd build
+cmake ..
+make
+sudo make install
+cd ~
+echo "Done"
 
-	if [ SOAPYRTLSDR == Y  ]; then
-		apt -y install soapyrtlsdr
-	fi
+################################################################
+# GIt the sdrplay soapy sidekiq module and build it.
+################################################################
+echo " building and installing SoapySidekiq"
+cd tmp
+git clone https://github.com/pothosware/SoapySidekiq.git
+cd SoapySidekiq
+mkdir build
+cd build
+cmake ..
+make
+sudo make install
+cd ~
+echo "Done"
 
-	if [ SOAPYPLUTOSDR == Y  ]; then
-		apt -y install soapyplutosdr
-	fi
-fi
+################################################################
+# GIt the sdrplay soapy FunCube module and build it.
+################################################################
+echo " building and installing SoapyFCDPP"
+cd tmp
+git clone https://github.com/pothosware/SoapyFCDPP.git
+cd SoapyFCDPP
+mkdir build
+cd build
+cmake ..
+make
+sudo make install
+cd ~
+echo "Done"
 
+################################################################
+#
+# INSTALL SDRPLAY API for Linux
+#
+################################################################
+echo "Installing SDRPLAY API FOR Linux And SOAPYSDR"
+wget https://www.sdrplay.com/software/SDRplay_RSP_API-Linux-3.14.0.run
+sudo chmod 755 ./SDRplay_RSP_API-Linux-3.14.0.run
+sudo ./SDRplay_RSP_API-Linux-3.14.0.run
+echo "Done"
 
+################################################################
+# GIt the sdrplay soapy module and build it.
+################################################################
+echo " building and installing SoapySDRPlay3"
+git clone https://github.com/pothosware/SoapySDRPlay3.git
+cd SoapySDRPlay3
+mkdir build
+cd build
+cmake ..
+make
+sudo make install
+cd ~
+echo "Done"
+
+rm -rf tmp
+
+echo ""
+echo "IF any errors please report them so that they can be fixed"
+echo ""
+echo "If there were no errors reported, please reboot your machine."
+echo "Everything should be ready to go."
+echo "You can Now build SDR++ / SDR++Brown"
+echo ""
