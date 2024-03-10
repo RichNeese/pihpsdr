@@ -49,9 +49,9 @@ ifeq ($(UNAME_S), Darwin)
 else
 	PREFIX?=/usr
 	APPSDIR=$(PREFIX)/share/applications
-	APPICONDIR=$(PREFIX)/share/linhpsdr
+	APPICONDIR=$(PREFIX)/share/pihpsdr
 	EXECDIR=$(PREFIX)/local/bin
-	ICONSDIR=$(PREFIX)/share/icons/linhpsdr
+	ICONSDIR=$(PREFIX)/share/icons/pihpsdr
 endif
 
 # Get git commit version and date
@@ -378,11 +378,11 @@ LIBS= $(LDFLAGS) $(AUDIO_LIBS) $(USBOZY_LIBS) $(GTKLIBS) $(GPIO_LIBS) $(SOAPYSDR
 
 ##############################################################################
 #
-# The main target, the linhpsdr program
+# The main target, the pihpsdr program
 #
 ##############################################################################
 
-PROGRAM=linhpsdr
+PROGRAM=pihpsdr
 
 ##############################################################################
 #
@@ -697,7 +697,7 @@ clean:
 #
 # "make release" is for maintainers and not for end-users.
 # If this results in an error for end users, this is a feature not a bug.
-# Remove linhpsdr and libwdsp.so from release/linhpsdr since these might
+# Remove pihpsdr and libwdsp.so from release/pihpsdr since these might
 # be left-overs.
 #
 #############################################################################
@@ -705,10 +705,10 @@ clean:
 .PHONY:	release
 release: $(PROGRAM)
 	make -C release/LatexManual release
-	rm -f release/linhpsdr/linhpsdr
-	rm -f release/linhpsdr/libwdsp.so
-	cp $(PROGRAM) release/linhpsdr
-	cd release; tar cvf linhpsdr-$(GIT_VERSION).tar linhpsdr
+	rm -f release/pihpsdr/pihpsdr
+	rm -f release/pihpsdr/libwdsp.so
+	cp $(PROGRAM) release/pihpsdr
+	cd release; tar cvf pihpsdr-$(GIT_VERSION).tar pihpsdr
 
 .PHONY: install-deps
 install-deps:
@@ -730,7 +730,7 @@ ifeq ($(UNAME_S), Linux)
 	install $(PROGRAM) $(EXECDIR)
 	install LINUX/hpsdr.png $(APPICONDIR)
 	install LINUX/hpsdr_icon.png $(ICONSDIR)
-	install LINUX/linhpsdr.desktop $(APPSDIR)
+	install LINUX/pihpsdr.desktop $(APPSDIR)
 endif
 
 .PHONY: gpio
@@ -745,7 +745,7 @@ ifeq ($(UNAME_S), Linux)
 			echo "Please reboot system for this to take effect."
 			cat <<EGPIO | sudo tee -a /boot/config.txt > /dev/null
 			[all]
-			# setup GPIO for linhpsdr controllers
+			# setup GPIO for pihpsdr controllers
 			gpio=4-13,16-27=ip,pu
 			EGPIO
 		endif
@@ -755,8 +755,8 @@ endif
 .PHONY: uninstall
 uninstall:
 ifeq ($(UNAME_S), Linux)
-	rm $(EXECDIR)/linhpsdr
-	rm $(APPSDIR)/linhpsdr.desktop
+	rm $(EXECDIR)/pihpsdr
+	rm $(APPSDIR)/pihpsdr.desktop
 	rm -rf $(ICONSDIR)
 endif
 
@@ -801,16 +801,16 @@ bootloader:	src/bootloader.c
 #############################################################################
 
 #debian:
-#	mkdir -p pkg/linhpsdr/usr/local/bin
-#	mkdir -p pkg/linhpsdr/usr/local/lib
-#	mkdir -p pkg/linhpsdr/usr/share/linhpsdr
-#	mkdir -p pkg/linhpsdr/usr/share/applications
-#	cp $(PROGRAM) pkg/linhpsdr/usr/local/bin
-#	cp /usr/local/lib/libwdsp.so pkg/linhpsdr/usr/local/lib
-#	cp release/linhpsdr/hpsdr.png pkg/linhpsdr/usr/share/linhpsdr
-#	cp release/linhpsdr/hpsdr_icon.png pkg/linhpsdr/usr/share/linhpsdr
-#	cp release/linhpsdr/linhpsdr.desktop pkg/linhpsdr/usr/share/applications
-#	cd pkg; dpkg-deb --build linhpsdr
+#	mkdir -p pkg/pihpsdr/usr/local/bin
+#	mkdir -p pkg/pihpsdr/usr/local/lib
+#	mkdir -p pkg/pihpsdr/usr/share/pihpsdr
+#	mkdir -p pkg/pihpsdr/usr/share/applications
+#	cp $(PROGRAM) pkg/pihpsdr/usr/local/bin
+#	cp /usr/local/lib/libwdsp.so pkg/pihpsdr/usr/local/lib
+#	cp release/pihpsdr/hpsdr.png pkg/pihpsdr/usr/share/pihpsdr
+#	cp release/pihpsdr/hpsdr_icon.png pkg/pihpsdr/usr/share/pihpsdr
+#	cp release/pihpsdr/pihpsdr.desktop pkg/pihpsdr/usr/share/applications
+#	cd pkg; dpkg-deb --build pihpsdr
 
 #############################################################################
 #
@@ -854,15 +854,15 @@ endif
 	$(LINK) -headerpad_max_install_names -o $(PROGRAM) $(OBJS) $(AUDIO_OBJS) $(USBOZY_OBJS)  \
 		$(SOAPYSDR_OBJS) $(MIDI_OBJS) $(STEMLAB_OBJS) $(SERVER_OBJS) $(SATURN_OBJS) \
 		$(LIBS) $(LDFLAGS)
-	@rm -rf linhpsdr.app
-	@mkdir -p linhpsdr.app/Contents/MacOS
-	@mkdir -p linhpsdr.app/Contents/Frameworks
-	@mkdir -p linhpsdr.app/Contents/Resources
-	@cp linhpsdr linhpsdr.app/Contents/MacOS/linhpsdr
-	@cp MacOS/PkgInfo linhpsdr.app/Contents
-	@cp MacOS/Info.plist linhpsdr.app/Contents
-	@cp MacOS/hpsdr.icns linhpsdr.app/Contents/Resources/hpsdr.icns
-	@cp MacOS/hpsdr.png linhpsdr.app/Contents/Resources
+	@rm -rf pihpsdr.app
+	@mkdir -p pihpsdr.app/Contents/MacOS
+	@mkdir -p pihpsdr.app/Contents/Frameworks
+	@mkdir -p pihpsdr.app/Contents/Resources
+	@cp pihpsdr pihpsdr.app/Contents/MacOS/pihpsdr
+	@cp MacOS/PkgInfo pihpsdr.app/Contents
+	@cp MacOS/Info.plist pihpsdr.app/Contents
+	@cp MacOS/hpsdr.icns pihpsdr.app/Contents/Resources/hpsdr.icns
+	@cp MacOS/hpsdr.png pihpsdr.app/Contents/Resources
 
 #############################################################################
 #
