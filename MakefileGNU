@@ -728,9 +728,9 @@ endif
 install: install-dirs
 ifeq ($(UNAME_S), Linux)
 	install $(PROGRAM) $(EXECDIR)
-	install LINUX/hpsdr.png $(APPICONDIR)
-	install LINUX/hpsdr_icon.png $(ICONSDIR)
-	install LINUX/linhpsdr.desktop $(APPSDIR)
+	install LINUX/pihpsdr.png $(APPICONDIR)
+	install LINUX/pihpsdr_icon.png $(ICONSDIR)
+	install LINUX/pihpsdr.desktop $(APPSDIR)
 endif
 
 .PHONY: gpio
