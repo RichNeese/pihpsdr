@@ -24,7 +24,7 @@ echo ""
 # All packages needed for SDR++
 #
 ################################################################
-echo "Installing Deps for building SDR++ / SDR++Brown"
+echo "Installing Deps for building piHPSDR "
 sudo apt -y install build-essential
 sudo apt -y install cmake
 sudo apt -y install pkg-config
@@ -42,7 +42,6 @@ sudo apt -y install libiio-utils
 sudo apt -y install libad9361-dev
 sudo apt -y install librtaudio-dev
 sudo apt -y install libvolk2-dev
-sudo apt -y install libvulkan-volk-dev
 sudo apt -y install libzstd-dev
 sudo apt -y install zstd
 echo "Done"
@@ -356,7 +355,7 @@ echo "##############################################################"
 nano MakefileGNU
 echo "buildig piHPSDH/LinHPSDR"
 make -j4 -f MakefileGNU
-echo " Installing piHPSDR / LinHPSDRR"
+echo " Installing piHPSDR "
 make -f MakefileGNU install
 echo " Doing Cleanup"
 make clean
