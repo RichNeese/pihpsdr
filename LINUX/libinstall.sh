@@ -71,13 +71,16 @@ sudo apt -y install librtlsdr-dev
 sudo apt -y install rtl-sdr
 echo "Done"
 
-#########################################################
-# Lib for airspy / airspyhf
-# Disable if you want to us soapysdr drivers
-#########################################################
-echo "INSTALLING AIRSPY"
-sudo apt -y install airspy
-sudo apt -y install libairspy-dev
+sudo apt-get --yes install libfftw3-dev
+sudo apt-get --yes install libgtk-3-dev
+sudo apt-get --yes install libasound2-dev
+sudo apt-get --yes install libcurl4-openssl-dev
+sudo apt-get --yes install libusb-1.0-0-dev
+sudo apt-get --yes install libi2c-dev
+sudo apt-get --yes install libgpiod-dev
+sudo apt-get --yes install libpulse-dev
+sudo apt-get --yes install pulseaudio
+sudo apt-get --yes install libpcap-dev
 
 echo "Installing AIRSPYHF"
 sudo apt -y install airspyhf

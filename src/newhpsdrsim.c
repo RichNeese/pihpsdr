@@ -1,3 +1,4 @@
+#define TXIQ_FIFO
 /* Copyright (C)
 * 2019 - Christoph van Wüllen, DL1YCF
 *
@@ -87,7 +88,10 @@ static int txrate = -1;
 static int ducbits = -1;
 static int orion = -1;
 static int gain = -1;
-static int txatt = -1;
+static int txatt0 = -1;
+static int txatt1 = -1;
+static int txatt2 = -1;
+static int ramplen = -1;
 
 //stat from high-priority packet
 static int run = 0;
@@ -112,7 +116,9 @@ static int stepatt1 = -1;
 //
 static double rxatt0_dbl = 1.0;
 static double rxatt1_dbl = 1.0;
-static double txatt_dbl = 1.0;
+static double txatt0_dbl = 1.0;
+static double txatt1_dbl = 1.0;
+static double txatt2_dbl = 1.0;
 static double txdrv_dbl = 0.0;
 
 // End of state variables
@@ -157,7 +163,7 @@ void new_protocol_general_packet(unsigned char *buffer) {
     t_print("GP: SEQ ERROR, old=%lu new=%lu\n", seqold, seqnum);
   }
 
-#ifdef PACKETLIST
+#ifdef GP_PACKETLIST
   t_print("GP rcvd, seq=%lu\n", seqnum);
 #endif
   rc = (buffer[5] << 8) + buffer[6];
@@ -426,7 +432,7 @@ void *ddc_specific_thread(void *data) {
 
     seqold = seqnum;
     seqnum = (buffer[0] >> 24) + (buffer[1] << 16) + (buffer[2] << 8) + buffer[3];
-#ifdef PACKETLIST
+#ifdef DDC_SPEC_PACKETLIST
     t_print("DDC SPEC rcvd seq=%lu\n", seqnum);
 #endif
 
@@ -566,7 +572,7 @@ void *duc_specific_thread(void *data) {
     watchdog_count = 0;
     seqold = seqnum;
     seqnum = (buffer[0] >> 24) + (buffer[1] << 16) + (buffer[2] << 8) + buffer[3];
-#ifdef PACKETLIST
+#ifdef DUC_SPEC_PACKETLIST
     t_print("DUC SPEC rcvd seq=%lu\n", seqnum);
 #endif
 
@@ -630,6 +636,11 @@ void *duc_specific_thread(void *data) {
       t_print("TX: DUC sample width: %d bits\n", ducbits);
     }
 
+    if (ramplen != buffer[17]) {
+      ramplen = buffer[17];
+      t_print("TX: CW ramp length %d msec\n",ramplen);
+    }
+
     if (orion != buffer[50]) {
       t_print("---------------------------------------------------\n");
       orion = buffer[50];
@@ -685,10 +696,22 @@ void *duc_specific_thread(void *data) {
       t_print("TX: LineIn Gain (dB): %f\n", -34.0 + 1.5 * gain);
     }
 
-    if (txatt != buffer[59]) {
-      txatt = buffer[59];
-      txatt_dbl = pow(10.0, -0.05 * txatt);
-      t_print("TX: ATT DUC0/ADC0: %d\n", txatt);
+    if (txatt2 != buffer[57]) {
+      txatt2 = buffer[57];
+      txatt2_dbl = pow(10.0, -0.05 * txatt2);
+      t_print("TX: ATT ADC2: %d\n", txatt2);
+    }
+
+    if (txatt1 != buffer[58]) {
+      txatt1 = buffer[58];
+      txatt1_dbl = pow(10.0, -0.05 * txatt1);
+      t_print("TX: ATT ADC1: %d\n", txatt1);
+    }
+
+    if (txatt0 != buffer[59]) {
+      txatt0 = buffer[59];
+      txatt0_dbl = pow(10.0, -0.05 * txatt0);
+      t_print("TX: ATT ADC0: %d\n", txatt0);
     }
   }
 
@@ -757,7 +780,7 @@ void *highprio_thread(void *data) {
     hp_mod = 0;
     seqold = seqnum;
     seqnum = (buffer[0] >> 24) + (buffer[1] << 16) + (buffer[2] << 8) + buffer[3];
-#ifdef PACKETLIST
+#ifdef HP_PACKETLIST
     t_print("HP rcvd seq=%lu\n", seqnum);
 #endif
 
@@ -1011,7 +1034,6 @@ void *rx_thread(void *data) {
   double i0sample, q0sample;
   double i1sample, q1sample;
   double irsample, qrsample;
-  double fac;
   int sample;
   unsigned char *p;
   int noisept;
@@ -1172,9 +1194,8 @@ void *rx_thread(void *data) {
 
         if (rxptr >= NEWRTXLEN) { rxptr = 0; }
 
-        fac = txatt_dbl * txdrv_dbl * (IM3a + IM3b * (irsample * irsample + qrsample * qrsample) * txdrv_dbl * txdrv_dbl);
-
         if (myadc == 0) {
+          double fac = txatt0_dbl * txdrv_dbl * (IM3a + IM3b * (irsample * irsample + qrsample * qrsample) * txdrv_dbl * txdrv_dbl);
           i0sample += irsample * fac;
           q0sample += qrsample * fac;
         }
@@ -1309,8 +1330,14 @@ void *tx_thread(void * data) {
   int sample;
   double di, dq;
   double sum;
-#ifdef PACKETLIST
+#ifdef TXIQ_LEVEL
   long lsum;
+#endif
+#ifdef TXIQ_FIFO
+  double  FIFO = 0.0;
+  double last = -9999.9;
+  double now, gap;
+  struct timespec ts;
 #endif
   struct timeval tv;
   sock = socket(AF_INET, SOCK_DGRAM, 0);
@@ -1361,16 +1388,31 @@ void *tx_thread(void * data) {
       t_print("TXthread: SEQ ERROR, old=%lu new=%lu\n", seqold, seqnum);
     }
 
-    p = buffer + 4;
-    sum = 0.0;
-
+#ifdef TXIQ_FIFO
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    now = ts.tv_sec + 1.0E-9*ts.tv_nsec;
+    gap = now - last;
+    FIFO -= (192000.0 * gap);
+    if (FIFO < 0.0) FIFO = 0.0;
+    if (gap > 0.25) {
+      printf("TXIQ t=%8.3f gap=        Fill=%4d Seq=%6lu\n", now, (int) FIFO, seqnum);
+    } else {
+      printf("TXIQ t=%8.3f gap=%7.2f Fill=%4d Seq=%6lu\n", now, gap*1000.0, (int) FIFO, seqnum);
+    }
+    last = now;
+    FIFO +=240;
+#endif
+    
     if (txptr < 0) {
       txptr = NEWRTXLEN / 2;
     }
 
-#ifdef PACKETLIST
+#ifdef TXIQ_LEVEL
     lsum = 0;
 #endif
+
+    p = buffer + 4;
+    sum = 0.0;
 
     for (i = 0; i < 240; i++) {
       // process 240 TX iq samples
@@ -1378,13 +1420,13 @@ void *tx_thread(void * data) {
       sample |= (int)((((unsigned char)(*p++)) << 8) & 0xFF00);
       sample |= (int)((unsigned char)(*p++) & 0xFF);
       di = (double) sample / 8388608.0;
-#ifdef PACKETLIST
+#ifdef TXIQ_LEVEL
       lsum = lsum + labs(sample);
 #endif
       sample  = (int)((signed char) (*p++)) << 16;
       sample |= (int)((((unsigned char)(*p++)) << 8) & 0xFF00);
       sample |= (int)((unsigned char)(*p++) & 0xFF);
-#ifdef PACKETLIST
+#ifdef TXIQ_LEVEL
       lsum = lsum + labs(sample);
 #endif
       dq = (double) sample / 8388608.0;
@@ -1414,7 +1456,7 @@ void *tx_thread(void * data) {
     // and thus txlevel = txdrv_dbl^2
     //
     txlevel = sum * txdrv_dbl * txdrv_dbl * 0.0041667;
-#ifdef PACKETLIST
+#ifdef TXIQ_LEVEL
     t_print("TXIQ-SUM=%ld\n", lsum);
 #endif
   }
@@ -1595,7 +1637,7 @@ void *audio_thread(void *data) {
   socklen_t lenaddr = sizeof(addr);
   unsigned long seqnum, seqold;
   unsigned char buffer[260];
-#ifdef PACKETLIST
+#ifdef AUDIO_LEVEL
   long lsum;
 #endif
   int yes = 1;
@@ -1651,7 +1693,7 @@ void *audio_thread(void *data) {
     }
 
     // just skip the audio samples
-#ifdef PACKETLIST
+#ifdef AUDIO_LEVEL
     lsum = 0;
 
     for (int  i = 4; i < 260; i++) {
@@ -1672,12 +1714,13 @@ void *audio_thread(void *data) {
 //
 void *mic_thread(void *data) {
   int sock;
+  unsigned long seqnum = 0;
   struct sockaddr_in addr;
-  unsigned long seqnum;
   unsigned char buffer[132];
   unsigned char *p;
   int yes = 1;
   struct timespec delay;
+
   sock = socket(AF_INET, SOCK_DGRAM, 0);
 
   if (sock < 0) {
@@ -1698,7 +1741,6 @@ void *mic_thread(void *data) {
     return NULL;
   }
 
-  seqnum = 0;
   memset(buffer, 0, 132);
   clock_gettime(CLOCK_MONOTONIC, &delay);
 

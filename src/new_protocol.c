@@ -1443,6 +1443,10 @@ static void new_protocol_transmit_specific() {
   transmit_specific_buffer[11] = cw_keyer_hang_time >> 8;
   transmit_specific_buffer[12] = cw_keyer_hang_time;
   transmit_specific_buffer[13] = rfdelay;
+  transmit_specific_buffer[14] = 0;
+  transmit_specific_buffer[15] = 0;   // should be 192: TX sample rate 192k
+  transmit_specific_buffer[16] = 0;   // should be 24:  TX IQ sample width 24 bits
+  transmit_specific_buffer[17] = cw_ramp_width;
   transmit_specific_buffer[50] = 0;
 
   if (mic_linein) {
@@ -1841,12 +1845,47 @@ static gpointer new_protocol_txiq_thread(gpointer data) {
       saturn_handle_duc_iq(false, iqbuffer);
 #endif
     } else {
+      //
+      // The idea is to monitor how fast we actually send
+      // the packets, since both usleep() and clock_nanosleep()
+      // may sleep longer than intended.
+      // FIFO is the coarse (!) estimation of the TX DUC FIFO filling.
+      // If we lag behind and FIFO goes low, send packet immediately.
+      //
+      struct timespec ts;
+      static double last = -9999.9;
+      static double FIFO = 0.0;
+      double now;
+      clock_gettime(CLOCK_MONOTONIC, &ts);
+      now = ts.tv_sec + 1.0E-9 * ts.tv_nsec;
+      FIFO -= (now - last) * 192000.0;
+      last = now;
+
+      if (FIFO < 0.0) {
+       //
+       // normally this occurs at the RX-TX transition
+       //
+        FIFO = 0.0;
+      }
+ 
+      if (FIFO > 1250.0)  {
+        //
+        // Wait about 1000 usec before sending the next packet.
+        // In reality, it takes a little longer before we resume work
+        //
+        ts.tv_nsec += 1000000;
+        if (ts.tv_nsec > 999999999) {
+          ts.tv_sec++;
+          ts.tv_nsec -= 1000000000;
+        }
+        clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &ts, NULL);
+      }
+      FIFO += 240.0;  // number of samples in THIS packet
+
       if (sendto(data_socket, iqbuffer, sizeof(iqbuffer), 0, (struct sockaddr * )&iq_addr, iq_addr_length) < 0) {
         t_perror("sendto socket failed for iq:");
         exit(1);
       }
-
-      usleep(1000);
     }
   }
 
@@ -2514,12 +2553,12 @@ void new_protocol_cw_audio_samples(short left_audio_sample, short right_audio_sa
     if (!rxaudio_flag) {
       //
       // First time we arrive here after a RX->TX(CW) transition:
-      // set the "drain" flag, wait 10 msec, clear it
+      // set the "drain" flag, wait 5 msec, clear it
       // This should drain the audio ring buffer, to achieve
       // minimum latency for the CW side tone.
       //
       rxaudio_drain = 1;
-      usleep(10000);
+      usleep(5000);
       rxaudio_drain = 0;
       rxaudio_flag = 1;
     }
@@ -2574,11 +2613,11 @@ void new_protocol_audio_samples(RECEIVER *rx, short left_audio_sample, short rig
   if (rxaudio_flag) {
     //
     // First time we arrive here after a TX(CW)->RX transition:
-    // set the "drain" flag, wait 10 msec, clear it
+    // set the "drain" flag, wait 5 msec, clear it
     // This should drain the audio ring buffer.
     //
     rxaudio_drain = 1;
-    usleep(10000);
+    usleep(5000);
     rxaudio_drain = 0;
     rxaudio_flag = 0;
   }

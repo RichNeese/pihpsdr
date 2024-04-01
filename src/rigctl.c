@@ -72,6 +72,7 @@
 
 int rigctl_port_base = 19090;
 int rigctl_enable = 0;
+int rigctl_start_with_autoreporting = 0;
 
 // max number of bytes we can get at once
 #define MAXDATASIZE 2000
@@ -87,7 +88,7 @@ typedef struct {GMutex m; } GT_MUTEX;
 GT_MUTEX * mutex_a;
 GT_MUTEX * mutex_busy;
 
-#define MAX_CLIENTS 3
+#define MAX_TCP_CLIENTS 3
 static GThread *rigctl_server_thread_id = NULL;
 static GThread *rigctl_cw_thread_id = NULL;
 static int server_running;
@@ -97,16 +98,17 @@ static struct sockaddr_in server_address;
 
 typedef struct _client {
   int fd;
-  int fifo;    // only needed for serial clients to
-  // indicate this is a FIFO and not a
-  // true serial line
-  int busy;    // only needed for serial clients over FIFOs
-  int done;    // only needed for serial clients over FIFOs
-  int running; // set this to zero to terminate client
+  int fifo;                    // only needed for serial clients to
+                               // indicate this is a FIFO and not a
+                               // true serial line
+  int busy;                    // only needed for serial clients over FIFOs
+  int done;                    // only needed for serial clients over FIFOs
+  int running;                 // set this to zero to terminate client
   socklen_t address_length;
   struct sockaddr_in address;
   GThread *thread_id;
-  guint andromeda_timer;  // for periodic andromeda_tasks
+  guint andromeda_timer;       // for periodic andromeda_tasks (serial only)
+  int auto_reporting;          // auto-reporting (AI, ZZAI) on/off
 } CLIENT;
 
 typedef struct _command {
@@ -114,39 +116,56 @@ typedef struct _command {
   char *command;
 } COMMAND;
 
-static CLIENT tcp_client[MAX_CLIENTS];     // TCP clients
+static CLIENT tcp_client[MAX_TCP_CLIENTS]; // TCP clients
 static CLIENT serial_client[MAX_SERIAL];   // serial clienta
 SERIALPORT SerialPorts[MAX_SERIAL];
 
 static gpointer rigctl_client (gpointer data);
 
-void close_rigctl_ports() {
-  int i;
+static guint auto_timer = 0;
+
+//
+// This macro handles cases where RX1 is referred to but might not
+// exist. These macros lead to an action only  if the RX exists.
+// RXCHECK_ERR sets an error flag if RX is non-exisiting.
+// RXCHECK     just silently ignores the command
+//
+#define RXCHECK_ERR(id, what) if (id >= 0 && id < receivers) { what; } else { implemented = FALSE; }
+#define RXCHECK(id, what)     if (id >= 0 && id < receivers) { what; }
+
+void shutdown_rigctl() {
   struct linger linger = { 0 };
   linger.l_onoff = 1;
   linger.l_linger = 0;
   t_print("%s: server_socket=%d\n", __FUNCTION__, server_socket);
+
   server_running = 0;
 
-  for (i = 0; i < MAX_CLIENTS; i++) {
-    tcp_client[i].running = 0;
+  if (auto_timer > 0) {
+    g_source_remove(auto_timer);
+    auto_timer = 0;
+  }
 
-    if (tcp_client[i].fd != -1) {
-      t_print("%s: setting SO_LINGER to 0 for client_socket: %d\n", __FUNCTION__, tcp_client[i].fd);
+  for (int id = 0; id < MAX_TCP_CLIENTS; id++) {
+    tcp_client[id].running = 0;
 
-      if (setsockopt(tcp_client[i].fd, SOL_SOCKET, SO_LINGER, (const char *)&linger, sizeof(linger)) == -1) {
+    if (tcp_client[id].fd != -1) {
+      t_print("%s: setting SO_LINGER to 0 for client_socket: %d\n", __FUNCTION__, tcp_client[id].fd);
+
+      if (setsockopt(tcp_client[id].fd, SOL_SOCKET, SO_LINGER, (const char *)&linger, sizeof(linger)) == -1) {
         t_perror("setsockopt(...,SO_LINGER,...) failed for client");
       }
 
-      t_print("%s: closing client socket: %d\n", __FUNCTION__, tcp_client[i].fd);
-      close(tcp_client[i].fd);
-      tcp_client[i].fd = -1;
+      t_print("%s: closing client socket: %d\n", __FUNCTION__, tcp_client[id].fd);
+      close(tcp_client[id].fd);
+      tcp_client[id].fd = -1;
     }
 
-    if (tcp_client[i].thread_id) {
-      g_thread_join(tcp_client[i].thread_id);
-      tcp_client[i].thread_id = NULL;
+    if (tcp_client[id].thread_id) {
+      g_thread_join(tcp_client[id].thread_id);
+      tcp_client[id].thread_id = NULL;
     }
+
   }
 
   if (server_socket >= 0) {
@@ -578,31 +597,31 @@ static gpointer rigctl_cw_thread(gpointer data) {
       switch (cwchar) {
       case '+':
         buffered_speed = (5 * cw_keyer_speed) / 4;
-        cwchar=0;
+        cwchar = 0;
         break;
       case '-':
         buffered_speed = (3 * cw_keyer_speed) / 4;
-        cwchar=0;
+        cwchar = 0;
         break;
       case '.':
         join_cw_characters = 1;
-        cwchar=0;
+        cwchar = 0;
         break;
       }
-      bracket_command=0;
+      bracket_command = 0;
     }
 
     if (cwchar == '[') {
       bracket_command = 1;
-      cwchar=0;
-    } 
+      cwchar = 0;
+    }
 
     if (cwchar == ']') {
       buffered_speed = 0;
       join_cw_characters = 0;
-      cwchar=0;
-    } 
-      
+      cwchar = 0;
+    }
+
     // The dot and dash length may have changed, so recompute them here
     // This means that we can change the speed (KS command) while
     // the buffer is being sent
@@ -635,7 +654,7 @@ static gpointer rigctl_cw_thread(gpointer data) {
       }
     }
 
-    // At this point, mox==1 and CAT_cw_active == 1
+    // At this point, mox == 1 and CAT_cw_active == 1
     if (cw_key_hit || cw_not_ready) {
       //
       // CW transmission has been aborted, either due to manually
@@ -713,6 +732,10 @@ static gpointer rigctl_cw_thread(gpointer data) {
 }
 
 void send_resp (int fd, char * msg) {
+  //
+  // send_resp is ONLY called from within the GTK event queue
+  // ==> no multi-thread problems can occur.
+  //
   if (fd == -1) {
     //
     // This means the client fd has been explicitly closed
@@ -727,12 +750,12 @@ void send_resp (int fd, char * msg) {
   int length = strlen(msg);
   int count = 0;
 
-  //
-  // Possibly, the channel is already closed. In this case
-  // give up (rc < 0) or at most try a few times (rc == 0)
-  // since we are in the GTK idle loop
-  //
   while (length > 0) {
+    //
+    // Since this is in the GTK event queue, we cannot try
+    // for a long time. In case of an error (rc < 0) we give
+    // up immediately, for rc == 0 we try at most 10 times.
+    //
     int rc = write(fd, msg, length);
 
     if (rc < 0) { return; }
@@ -748,6 +771,67 @@ void send_resp (int fd, char * msg) {
   }
 }
 
+gboolean auto_reporter(gpointer data) {
+  //
+  // This function is repeatedly called as long as rigctl
+  // is running. It reports VFOA and VFOB frequency changes
+  // to *all* clients that are running and have
+  // autoreporting enabled.
+  //
+  // Note this runs in the GTK event queue so it cannot interfere
+  // with another CAT command
+  //
+  char reply[256];
+  static long long last_fa = -1;
+  static long long last_fb = -1;
+  long long fa;
+  long long fb;
+
+  if (!server_running) { return FALSE; }
+
+  fa = vfo[VFO_A].ctun ? vfo[VFO_A].ctun_frequency : vfo[VFO_A].frequency;
+  fb = vfo[VFO_B].ctun ? vfo[VFO_B].ctun_frequency : vfo[VFO_B].frequency;
+
+  //
+  // Loop through *all* clients and report changed frequencies, if
+  // - that client is running
+  // - autoreporting is enabled for that client
+  // - that client is not a FIFO
+  //
+  // Auto-reporting to a FIFO is suppressed because all data sent there will
+  // then be read again.
+  //
+  if (fa != last_fa || fb != last_fb) {
+
+    for (int id = 0; id < MAX_SERIAL; id++) {
+      if (!serial_client[id].running || !serial_client[id].auto_reporting || serial_client[id].fifo) { continue; }
+      if (fa != last_fa) {
+        snprintf(reply, 256, "FA%011lld;", fa);
+        send_resp(serial_client[id].fd, reply);
+      }
+      if (fb != last_fb) {
+        snprintf(reply, 256, "FB%011lld;", fb);
+        send_resp(serial_client[id].fd, reply);
+      }
+    }
+    for (int id = 0; id < MAX_TCP_CLIENTS; id++) {
+      if (!tcp_client[id].running || !tcp_client[id].auto_reporting) { continue; }
+      if (fa != last_fa) {
+        snprintf(reply, 256, "FA%011lld;", fa);
+        send_resp(tcp_client[id].fd, reply);
+      }
+      if (fb != last_fb) {
+        snprintf(reply, 256, "FB%011lld;", fb);
+        send_resp(tcp_client[id].fd, reply);
+      }
+    }
+    last_fa = fa;
+    last_fb = fb;
+  }
+
+  return TRUE;
+}
+
 //
 // 2-25-17 - K5JAE - removed duplicate rigctl
 //
@@ -755,7 +839,6 @@ void send_resp (int fd, char * msg) {
 static gpointer rigctl_server(gpointer data) {
   int port = GPOINTER_TO_INT(data);
   int on = 1;
-  int i;
   t_print("%s: starting TCP server on port %d\n", __FUNCTION__, port);
   server_socket = socket(AF_INET, SOCK_STREAM, 0);
 
@@ -778,8 +861,10 @@ static gpointer rigctl_server(gpointer data) {
     return NULL;
   }
 
-  for (i = 0; i < MAX_CLIENTS; i++) {
-    tcp_client[i].fd = -1;
+  for (int id = 0; id < MAX_TCP_CLIENTS; id++) {
+    tcp_client[id].fd = -1;
+    tcp_client[id].fifo = 0;
+    tcp_client[id].auto_reporting = 0;
   }
 
   // listen with a max queue of 3
@@ -802,9 +887,9 @@ static gpointer rigctl_server(gpointer data) {
     //
     spare = -1;
 
-    for (i = 0; i < MAX_CLIENTS; i++) {
-      if (tcp_client[i].fd == -1) {
-        spare = i;
+    for (int id = 0; id < MAX_TCP_CLIENTS; id++) {
+      if (tcp_client[id].fd == -1) {
+        spare = id;
         break;
       }
     }
@@ -847,6 +932,7 @@ static gpointer rigctl_server(gpointer data) {
     // Spawn off a thread for handling this new connection
     //
     tcp_client[spare].running = 1;
+    tcp_client[spare].auto_reporting = SET(rigctl_start_with_autoreporting);
     tcp_client[spare].thread_id = g_thread_new("rigctl client", rigctl_client, (gpointer)&tcp_client[spare]);
   }
 
@@ -872,6 +958,13 @@ static gpointer rigctl_client (gpointer data) {
 
   while (client->running && (numbytes = recv(client->fd, cmd_input, MAXDATASIZE - 2, 0)) > 0 ) {
     for (i = 0; i < numbytes; i++) {
+      //
+      // Filter out newlines and other non-printable characters
+      // These may occur when doing CAT manually with a terminal program
+      //
+      if (cmd_input[i] < 32) {
+        continue;
+      }
       command[command_index] = cmd_input[i];
       command_index++;
 
@@ -893,7 +986,7 @@ static gpointer rigctl_client (gpointer data) {
   t_print("%s: Leaving rigctl_client thread\n", __FUNCTION__);
 
   //
-  // If rigctl is disabled via the GUI, the connections are closed by close_rigctl_ports()
+  // If rigctl is disabled via the GUI, the connections are closed by shutdown_rigctl_ports()
   // but even the we should decrement cat_control
   //
   if (client->fd != -1) {
@@ -906,6 +999,7 @@ static gpointer rigctl_client (gpointer data) {
       t_perror("setsockopt(...,SO_LINGER,...) failed for client");
     }
 
+    client->running = 0;
     close(client->fd);
     client->fd = -1;
   }
@@ -965,7 +1059,7 @@ static int ts2000_mode(int m) {
   return mode;
 }
 
-gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
+gboolean parse_extended_cmd (const char *command, CLIENT *client) {
   gboolean implemented = TRUE;
   char reply[256];
   reply[0] = '\0';
@@ -973,17 +1067,19 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
   switch (command[2]) {
   case 'A': //ZZAx
     switch (command[3]) {
-    case 'A': //ZZAA
-      implemented = FALSE;
-      break;
-
-    case 'B': //ZZAB
-      implemented = FALSE;
-      break;
-
     case 'C': //ZZAC
-
-      // sets or reads the Step Size
+      //CATDEF    ZZAC
+      //DESCR     Set/read VFO-A step size
+      //SET       ZZACxx;
+      //READ      ZZAC;
+      //RESP      ZZACxx;
+      //NOTE      x 0...16 encodes the step size:
+      //NOTE      1 Hz (x=0), 10 Hz (x=1), 25 Hz (x=2), 50 Hz (x=3)
+      //NOTE      100 Hz (x=4), 250 Hz (x=5), 500 Hz (x=6), 1000 Hz (x=7)
+      //NOTE      5000 Hz (x=8), 6250 Hz (x=9), 9 kHz (x=10), 10 kHz (x=11)
+      //NOTE      12.5 kHz (x=12), 100 kHz (x=13), 250 kHz (x=14)
+      //NOTE      500 kHz (x=15), 1 MHz (x=16)
+      //ENDDEF
       if (command[4] == ';') {
         // read the step size
         snprintf(reply, 256, "ZZAC%02d;", vfo_get_stepindex(VFO_A));
@@ -999,8 +1095,11 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
       break;
 
     case 'D': //ZZAD
-
-      // move VFO A down by selected step
+      //CATDEF    ZZAD
+      //DESCR     Move down VFO-A frequency by a selected step
+      //SET       ZZACxx;
+      //NOTE      x encodes the step size, see ZZAC command.
+      //ENDDEF
       if (command[6] == ';') {
         int step_index = atoi(&command[4]);
         long long hz = (long long) vfo_get_step_from_index(step_index);
@@ -1011,8 +1110,11 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
       break;
 
     case 'E': //ZZAE
-
-      // move VFO A down nn tune steps
+      //CATDEF    ZZAE
+      //DESCR     Move down VFO-A frequency by several steps
+      //SET       ZZAExx;
+      //NOTE      VFO-A frequency moved down by x (0...99) times the current step size
+      //ENDDEF
       if (command[6] == ';') {
         int steps = atoi(&command[4]);
         vfo_id_step(VFO_A, -steps);
@@ -1021,8 +1123,11 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
       break;
 
     case 'F': //ZZAF
-
-      // move VFO A up nn tune steps
+      //CATDEF    ZZAF
+      //DESCR     Move up VFO-A frequency by several steps
+      //SET       ZZAFxx;
+      //NOTE      VFO-A frequency moved up by x (0...99) times the current step size
+      //ENDDEF
       if (command[6] == ';') {
         int steps = atoi(&command[4]);
         vfo_id_step(VFO_A, steps);
@@ -1031,8 +1136,13 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
       break;
 
     case 'G': //ZZAG
-
-      // read/set audio gain
+      //CATDEF    ZZAG
+      //DESCR     Set/Read RX0 volume (AF slider)
+      //SET       ZZAGxxx;
+      //READ      ZZAG;
+      //RESP      ZZAGxxx;
+      //NOTE      x = 0...100, mapped logarithmically to -40 ... 0 dB.
+      //ENDDEF
       if (command[4] == ';') {
         // send reply back
         snprintf(reply, 256, "ZZAG%03d;", (int)(100.0 * pow(10.0, 0.05 * receiver[0]->volume)));
@@ -1052,16 +1162,38 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
       break;
 
     case 'I': //ZZAI
-      implemented = FALSE;
-      break;
+      //CATDEF    ZZAI
+      //DESCR     Set/Read auto-reporting
+      //SET       ZZAIx;
+      //READ      ZZAI;
+      //RESP      ZZAIx;
+      //NOTE      x=0: auto-reporting disabled, x=1: enabled
+      //NOTE      Auto-reporting is affected for the client that sends this command.
+      //ENDDEF
+      if (command[4] == ';') {
+        // Query status
+        snprintf(reply, 256, "ZZAI%d;", SET(client->auto_reporting));
+        send_resp(client->fd, reply) ;
+      } else if (command[4] == '0' && command[5] == ';') {
+        // disable reporting
+        client->auto_reporting = 0 ;
+      } else if (command[4] == '1' && command[5] == ';') {
+        // enable reporting
+        client->auto_reporting = 1;
+      } else {
+        implemented = FALSE;
+      }
 
-    case 'P': //ZZAP
-      implemented = FALSE;
       break;
 
     case 'R': //ZZAR
-
-      // read/set RX0 AGC Threshold
+      //CATDEF    ZZAR
+      //DESCR     Set/Read RX0 AGC gain
+      //SET       ZZARxxxx;
+      //READ      ZZAR;
+      //RESP      ZZARxxxx;
+      //NOTE      x -20...120, must contain + or - sign.
+      //ENDDEF
       if (command[4] == ';') {
         // send reply back
         snprintf(reply, 256, "ZZAR%+04d;", (int)(receiver[0]->agc_gain));
@@ -1074,8 +1206,13 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
       break;
 
     case 'S': //ZZAS
-
-      // read/set RX1 AGC Threshold
+      //CATDEF    ZZAS
+      //DESCR     Set/Read RX1 AGC gain
+      //SET       ZZASxxxx;
+      //READ      ZZAS;
+      //RESP      ZZASxxxx;
+      //NOTE      x -20...120, must contain + or - sign.
+      //ENDDEF
       if (receivers == 2) {
         if (command[4] == ';') {
           // send reply back
@@ -1091,13 +1228,12 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
 
       break;
 
-    case 'T': //ZZAT
-      implemented = FALSE;
-      break;
-
     case 'U': //ZZAU
-
-      // move VFO A up by selected step
+      //CATDEF    ZZAU
+      //DESCR     Move up VFO-A frequency by selected step
+      //SET       ZZAUxx;
+      //NOTE      x 0...16 selects the size of the step, see ZZAC command.
+      //ENDDEF
       if (command[6] == ';') {
         int step_index = atoi(&command[4]);
         long long hz = (long long) vfo_get_step_from_index(step_index);
@@ -1117,8 +1253,11 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
   case 'B': //ZZBx
     switch (command[3]) {
     case 'A': //ZZBA
-
-      // move RX2 down one band
+      //CATDEF    ZZBA
+      //DESCR     Move VFO-B one band down
+      //SET       ZZBA;
+      //NOTE      Wraps from lowest to highest band.
+      //ENDDEF
       if (command[4] == ';') {
         if (receivers == 2) {
           band_minus(receiver[1]->id);
@@ -1130,8 +1269,11 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
       break;
 
     case 'B': //ZZBB
-
-      // move RX2 up one band
+      //CATDEF    ZZBB
+      //DESCR     Move VFO-B one band up
+      //SET       ZZBB;
+      //NOTE      Wraps from highest to lowest band.
+      //ENDDEF
       if (command[4] == ';') {
         if (receivers == 2) {
           band_plus(receiver[1]->id);
@@ -1143,8 +1285,11 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
       break;
 
     case 'D': //ZZBD
-
-      // move RX1 down one band
+      //CATDEF    ZZBD
+      //DESCR     Move VFO-A one band down
+      //SET       ZZBD;
+      //NOTE      Wraps from lowest to highest band.
+      //ENDDEF
       if (command[4] == ';') {
         band_minus(receiver[0]->id);
       }
@@ -1152,8 +1297,11 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
       break;
 
     case 'E': //ZZBE
-
-      // move VFO B down nn tune steps
+      //CATDEF    ZZBE
+      //DESCR     Move down VFO-B frequency by multiple steps
+      //SET       ZZBExx;
+      //NOTE      VFO-B frequency moves down by x (0..99) times the current step size
+      //ENDDEF
       if (command[6] == ';') {
         int steps = atoi(&command[4]);
         vfo_id_step(VFO_B, -steps);
@@ -1162,8 +1310,11 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
       break;
 
     case 'F': //ZZBF
-
-      // move VFO B up nn tune steps
+      //CATDEF    ZZBF
+      //DESCR     Move up VFO-B frequency by multiple steps
+      //SET       ZZBFxx;
+      //NOTE      VFO-B frequency moves up by x (0...99) times the current step size
+      //ENDDEF
       if (command[6] == ';') {
         int steps = atoi(&command[4]);
         vfo_id_step(VFO_B, +steps);
@@ -1171,17 +1322,12 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
 
       break;
 
-    case 'G': //ZZBG
-      implemented = FALSE;
-      break;
-
-    case 'I': //ZZBI
-      implemented = FALSE;
-      break;
-
     case 'M': //ZZBM
-
-      // move VFO B down by selected step
+      //CATDEF    ZZBM
+      //DESCR     Move down VFO-B frequency by selected step.
+      //SET       ZZBMxx;
+      //NOTE      x 0...16 selects the size of the step, see ZZAC command.
+      //ENDDEF
       if (command[6] == ';') {
         int step_index = atoi(&command[4]);
         long long hz = (long long) vfo_get_step_from_index(step_index);
@@ -1192,8 +1338,11 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
       break;
 
     case 'P': //ZZBP
-
-      // move VFO B up by selected step
+      //CATDEF    ZZBP
+      //DESCR     Move upn VFO-B frequency by selected step.
+      //SET       ZZBPxx;
+      //NOTE      x 0...16 selects the size of the step, see ZZAC command.
+      //ENDDEF
       if (command[6] == ';') {
         int step_index = atoi(&command[4]);
         long long hz = (long long) vfo_get_step_from_index(step_index);
@@ -1203,13 +1352,16 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
 
       break;
 
-    case 'R': //ZZBR
-      implemented = FALSE;
-      break;
-
     case 'S': //ZZBS
-
-      // set/read RX1 band switch
+      //CATDEF    ZZBS
+      //DESCR     Set/Read VFO-B band
+      //SET       ZZBSxxx;
+      //NOTE      x 0...999 encodes the band:
+      //NOTE      136 kHz (x=136), 472 kHz (x=472), 160m (x=160)
+      //NOTE      80m (x=80), 60m (x=60), 40m (x=40), 30m (x=30)
+      //NODE      20m (x=20), 17m (x=17), 15m (x=15), 12m (x=12)
+      //NOTE      10m (x=10), 6m (x=6), Gen (x=888), WWV (x=999)
+      //ENDDEF
       if (command[4] == ';') {
         int b;
 
@@ -1352,13 +1504,12 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
 
       break;
 
-    case 'T': //ZZBT
-      // set/read RX2 band switch
-      break;
-
     case 'U': //ZZBU
-
-      // move RX1 up one band
+      //CATDEF    ZZBU
+      //DESCR     Move VFO-A one band up
+      //SET       ZZBU;
+      //NOTE      Wraps from highest to lowest band.
+      //ENDDEF
       if (command[4] == ';') {
         band_plus(receiver[0]->id);
       }
@@ -1378,50 +1529,15 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
 
   case 'C': //ZZCx
     switch (command[3]) {
-    case 'B': //ZZCB: VFO A to B
-      if (!locked) {
-        if (command[4] == ';') {
-          vfo_a_to_b();
-        }
-      }
-
-      break;
-
-    case 'D': //ZZCD: VFO B to A
-      if (!locked) {
-        if (command[4] == ';') {
-          vfo_b_to_a();
-        }
-      }
-
-      break;
-
-    case 'F': //ZZCF: Swap VFO A and B
-      if (!locked) {
-        if (command[4] == ';') {
-          vfo_a_swap_b();
-        }
-      }
-
-      break;
-
-    case 'I': //ZZCI
-      implemented = FALSE;
-      break;
-
-    case 'L': //ZZCL
-      implemented = FALSE;
-      break;
-
-    case 'M': //ZZCM
-      implemented = FALSE;
-      break;
-
     case 'N': //ZZCN
-
-      // set/read VFO A CTUN
+      //CATDEF    ZZCN
+      //DESCR     Set/Read VFO-A CTUN status
+      //SET       ZZCNx;
+      //READ      ZZCN;
+      //RESP      ZZCNx;
+      //NOTE      x=0: CTUN disabled, x=1: enabled
+      //ENDDEF
       if (command[4] == ';') {
-        // return the CTUN status
         snprintf(reply, 256, "ZZCN%d;", vfo[VFO_A].ctun);
         send_resp(client->fd, reply) ;
       } else if (command[5] == ';') {
@@ -1433,8 +1549,13 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
       break;
 
     case 'O': //ZZCO
-
-      // set/read VFO B CTUN
+      //CATDEF    ZZCO
+      //DESCR     Set/Read VFO-B CTUN status
+      //SET       ZZCOx;
+      //READ      ZZCO;
+      //RESP      ZZCOx;
+      //NOTE      x=0: CTUN disabled, x=1: enabled
+      //ENDDEF
       if (command[4] == ';') {
         // return the CTUN status
         snprintf(reply, 256, "ZZCO%d;", vfo[VFO_B].ctun);
@@ -1448,27 +1569,13 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
       break;
 
     case 'P': //ZZCP
-
+      //DO NOT DOCUMENT, CAN THIS BE REMOVED?
       // set/read compander
       if (command[4] == ';') {
         snprintf(reply, 256, "ZZCP%d;", 0);
         send_resp(client->fd, reply) ;
-      } else if (command[5] == ';') {
-        // ignore
       }
 
-      break;
-
-    case 'S': //ZZCS
-      implemented = FALSE;
-      break;
-
-    case 'T': //ZZCT
-      implemented = FALSE;
-      break;
-
-    case 'U': //ZZCU
-      implemented = FALSE;
       break;
 
     default:
@@ -1480,53 +1587,36 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
 
   case 'D': //ZZDx
     switch (command[3]) {
-    case 'A': //ZZDA
-      break;
-
     case 'B': //ZZDB
-
+      //DO NOT DOCUMENT, CAN THIS BE REMOVED?
       // set/read RX Reference
       if (command[4] == ';') {
         snprintf(reply, 256, "ZZDB%d;", 0); // currently always 0
         send_resp(client->fd, reply) ;
-      } else if (command[5] == ';') {
-        // ignore
       }
 
       break;
 
     case 'C': //ZZDC
-
+      //DO NOT DOCUMENT, CAN THIS BE REMOVED?
       // set/get diversity gain
       if (command[4] == ';') {
         snprintf(reply, 256, "ZZDC%04d;", (int)div_gain);
         send_resp(client->fd, reply) ;
-      } else if (command[8] == ';') {
-        // ignore
       }
 
       break;
 
     case 'D': //ZZDD
-
+      //DO NOT DOCUMENT, CAN THIS BE REMOVED?
       // set/get diversity phase
       if (command[4] == ';') {
         snprintf(reply, 256, "ZZDD%04d;", (int)div_phase);
         send_resp(client->fd, reply) ;
-      } else if (command[8] == ';') {
-        // ignore
       }
 
-    case 'E': //ZZDE
-      implemented = FALSE;
-      break;
-
-    case 'F': //ZZDF
-      implemented = FALSE;
-      break;
-
     case 'M': //ZZDM
-
+      //DO NOT DOCUMENT, CAN THIS BE REMOVED?
       // set/read Display Mode
       if (command[4] == ';') {
         int v = 0;
@@ -1539,76 +1629,58 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
 
         snprintf(reply, 256, "ZZDM%d;", v);
         send_resp(client->fd, reply) ;
-      } else {
       }
 
       break;
 
     case 'N': //ZZDN
-
+      //DO NOT DOCUMENT, CAN THIS BE REMOVED?
       // set/read waterfall low
       if (command[4] == ';') {
         snprintf(reply, 256, "ZZDN%+4d;", receiver[0]->waterfall_low);
         send_resp(client->fd, reply) ;
-      } else {
       }
 
       break;
 
     case 'O': //ZZDO
-
+      //DO NOT DOCUMENT, CAN THIS BE REMOVED?
       // set/read waterfall high
       if (command[4] == ';') {
         snprintf(reply, 256, "ZZDO%+4d;", receiver[0]->waterfall_high);
         send_resp(client->fd, reply) ;
-      } else {
       }
 
       break;
 
     case 'P': //ZZDP
-
+      //DO NOT DOCUMENT, CAN THIS BE REMOVED?
       // set/read panadapter high
       if (command[4] == ';') {
         snprintf(reply, 256, "ZZDP%+4d;", receiver[0]->panadapter_high);
         send_resp(client->fd, reply) ;
-      } else {
       }
 
       break;
 
     case 'Q': //ZZDQ
-
+      //DO NOT DOCUMENT, CAN THIS BE REMOVED?
       // set/read panadapter low
       if (command[4] == ';') {
         snprintf(reply, 256, "ZZDQ%+4d;", receiver[0]->panadapter_low);
         send_resp(client->fd, reply) ;
-      } else {
       }
 
       break;
 
     case 'R': //ZZDR
-
+      //DO NOT DOCUMENT, CAN THIS BE REMOVED?
       // set/read panadapter step
       if (command[4] == ';') {
         snprintf(reply, 256, "ZZDR%2d;", receiver[0]->panadapter_step);
         send_resp(client->fd, reply) ;
-      } else {
       }
 
-      break;
-
-    case 'U': //ZZDU
-      implemented = FALSE;
-      break;
-
-    case 'X': //ZZDX
-      implemented = FALSE;
-      break;
-
-    case 'Y': //ZZDY
-      implemented = FALSE;
       break;
 
     default:
@@ -1621,7 +1693,7 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
   case 'E': //ZZEx
     switch (command[3]) {
     case 'A': //ZZEA
-
+      //DO NOT DOCUMENT, CAN THIS BE REMOVED?
       // set/read rx equalizer values
       if (command[4] == ';') {
         snprintf(reply, 256, "ZZEA%03d%03d%03d%03d%03d00000000000000000000;", 3, rx_equalizer[0], rx_equalizer[1],
@@ -1649,7 +1721,7 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
       break;
 
     case 'B': //ZZEB
-
+      //DO NOT DOCUMENT, CAN THIS BE REMOVED?
       // set/read tx equalizer values
       if (command[4] == ';') {
         snprintf(reply, 256, "ZZEB%03d%03d%03d%03d%03d00000000000000000000;", 3, tx_equalizer[0], tx_equalizer[1],
@@ -1676,12 +1748,8 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
 
       break;
 
-    case 'M': //ZZEM
-      implemented = FALSE;
-      break;
-
     case 'R': //ZZER
-
+      //DO NOT DOCUMENT, CAN THIS BE REMOVED?
       // set/read rx equalizer
       if (command[4] == ';') {
         snprintf(reply, 256, "ZZER%d;", enable_rx_equalizer);
@@ -1694,7 +1762,7 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
       break;
 
     case 'T': //ZZET
-
+      //DO NOT DOCUMENT, CAN THIS BE REMOVED?
       // set/read tx equalizer
       if (command[4] == ';') {
         snprintf(reply, 256, "ZZET%d;", enable_tx_equalizer);
@@ -1716,8 +1784,13 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
   case 'F': //ZZFx
     switch (command[3]) {
     case 'A': //ZZFA
-
-      // set/read VFO-A frequency
+      //CATDEF    ZZFA
+      //DESCR     Set/Read VFO-A frequency
+      //SET       ZZFAxxxxxxxxxxx;
+      //READ      ZZFA;
+      //RESP      ZZFAxxxxxxxxxxx;
+      //NOTE      x in Hz, left-padded with zeroes
+      //ENDDEF
       if (command[4] == ';') {
         if (vfo[VFO_A].ctun) {
           snprintf(reply, 256, "ZZFA%011lld;", vfo[VFO_A].ctun_frequency);
@@ -1735,8 +1808,13 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
       break;
 
     case 'B': //ZZFB
-
-      // set/read VFO-B frequency
+      //CATDEF    ZZFB
+      //DESCR     Set/Read VFO-B frequency
+      //SET       ZZFBxxxxxxxxxxx;
+      //READ      ZZFB;
+      //RESP      ZZFBxxxxxxxxxxx;
+      //NOTE      x in Hz, left-padded with zeroes
+      //ENDDEF
       if (command[4] == ';') {
         if (vfo[VFO_B].ctun) {
           snprintf(reply, 256, "ZZFB%011lld;", vfo[VFO_B].ctun_frequency);
@@ -1754,14 +1832,19 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
       break;
 
     case 'D': //ZZFD
-
-      // set/read deviation
+      //CATDEF    ZZFD
+      //DESCR     Set/Read VFO-A FM deviation
+      //SET       ZZFDx;
+      //READ      ZZFD;
+      //RESP      ZZFDx;
+      //NOTE      x=0: Deviation 2500 Hz, x=1: 5000 Hz
+      //NOTE      Setting the deviation has no effect when the VFO-A mode is not FM.
+      //ENDDEF
       if (command[4] == ';') {
         snprintf(reply, 256, "ZZFD%d;", vfo[VFO_A].deviation == 2500 ? 0 : 1);
         send_resp(client->fd, reply) ;
       } else if (command[5] == ';') {
         int d = atoi(&command[4]);
-        // TODO: should we check for the mode being FMN?
         vfo[VFO_A].deviation = d ? 5000 : 2500;
         set_filter(receiver[0]);
 
@@ -1775,8 +1858,14 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
       break;
 
     case 'H': //ZZFH
-
-      // set/read RX1 filter high
+      //CATDEF    ZZFH
+      //DESCR     Set/Read RX0 filter high water
+      //SET       ZZFHxxxxx;
+      //READ      ZZFH;
+      //RESP      ZZFHxxxxxx;
+      //NOTE      x -9999 ... 9999. Must contain - sign if negative.
+      //NOTE      In LSB, the filter-high affecte the low audio frequencies
+      //ENDDEF
       if (command[4] == ';') {
         snprintf(reply, 256, "ZZFH%05d;", receiver[0]->filter_high);
         send_resp(client->fd, reply) ;
@@ -1800,35 +1889,50 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
       break;
 
     case 'I': //ZZFI
-
-      // set/read RX1 DSP receive filter
+      //CATDEF    ZZFI
+      //DESCR     Set/Read RX0 filter
+      //SET       ZZFIxx;
+      //READ      ZZFI;
+      //RESP      ZZFIxx;
+      //NOTE      x = 0...11 encodes the filter which also depends on the mode.
+      //ENDDEF
       if (command[4] == ';') {
         snprintf(reply, 256, "ZZFI%02d;", vfo[VFO_A].filter);
         send_resp(client->fd, reply) ;
       } else if (command[6] == ';') {
         int filter = atoi(&command[4]);
-        // update RX1 filter
         vfo_id_filter_changed(VFO_A, filter);
       }
 
       break;
 
     case 'J': //ZZFJ
-
-      // set/read RX2 DSP receive filter
+      //CATDEF    ZZFJ
+      //DESCR     Set/Read RX1 filter
+      //SET       ZZFJxx;
+      //READ      ZZFJ;
+      //RESP      ZZFJxx;
+      //NOTE      x = 0...11 encodes the filter which also depends on the mode.
+      //ENDDEF
       if (command[4] == ';') {
         snprintf(reply, 256, "ZZFJ%02d;", vfo[VFO_B].filter);
         send_resp(client->fd, reply) ;
       } else if (command[6] == ';') {
-        // update RX2 filter
-        // int filter=atoi(&command[4]);
+        int filter=atoi(&command[4]);
+        vfo_id_filter_changed(VFO_B, filter);
       }
 
       break;
 
     case 'L': //ZZFL
-
-      // set/read RX1 filter low
+      //CATDEF    ZZFL
+      //DESCR     Set/Read RX0 filter low water
+      //SET       ZZFLxxxxx;
+      //READ      ZZFL;
+      //RESP      ZZFLxxxxxx;
+      //NOTE      x -9999 ... 9999. Must contain - sign if negative.
+      //NOTE      In LSB, the filter-low affecte the high audio frequencies
+      //ENDDEF
       if (command[4] == ';') {
         snprintf(reply, 256, "ZZFL%05d;", receiver[0]->filter_low);
         send_resp(client->fd, reply) ;
@@ -1851,34 +1955,6 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
 
       break;
 
-    case 'M': //ZZFM
-      implemented = FALSE;
-      break;
-
-    case 'R': //ZZFR
-      implemented = FALSE;
-      break;
-
-    case 'S': //ZZFS
-      implemented = FALSE;
-      break;
-
-    case 'V': //ZZFV
-      implemented = FALSE;
-      break;
-
-    case 'W': //ZZFW
-      implemented = FALSE;
-      break;
-
-    case 'X': //ZZFX
-      implemented = FALSE;
-      break;
-
-    case 'Y': //ZZFY
-      implemented = FALSE;
-      break;
-
     default:
       implemented = FALSE;
       break;
@@ -1888,17 +1964,14 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
 
   case 'G': //ZZGx
     switch (command[3]) {
-    case 'E': //ZZGE
-      implemented = FALSE;
-      break;
-
-    case 'L': //ZZGL
-      implemented = FALSE;
-      break;
-
     case 'T': //ZZGT
-
-      // set/read RX1 AGC
+      //CATDEF    ZZGT
+      //DESCR     Set/Read RX0 AGC
+      //SET       ZZGTx;
+      //READ      ZZGT;
+      //RESP      ZZGTx;
+      //NOTE      x=0: AGC OFF, x=1: LONG, x=2: SLOW, x=3: MEDIUM, x=4: FAST
+      //ENDDEF
       if (command[4] == ';') {
         snprintf(reply, 256, "ZZGT%d;", receiver[0]->agc);
         send_resp(client->fd, reply) ;
@@ -1913,22 +1986,27 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
       break;
 
     case 'U': //ZZGU
-
-      // set/read RX2 AGC
-      if (receivers == 2) {
+      //CATDEF    ZZGU
+      //DESCR     Set/Read RX1 AGC
+      //SET       ZZGUx;
+      //READ      ZZGU;
+      //RESP      ZZGUx;
+      //NOTE      x=0: AGC OFF, x=1: LONG, x=2: SLOW, x=3: MEDIUM, x=4: FAST
+      //ENDDEF
+      RXCHECK(1,
         if (command[4] == ';') {
           snprintf(reply, 256, "ZZGU%d;", receiver[1]->agc);
           send_resp(client->fd, reply) ;
         } else if (command[5] == ';') {
           int agc = atoi(&command[4]);
           // update RX2 AGC
-          receiver[1]->agc = agc;
-          set_agc(receiver[1], agc);
-          g_idle_add(ext_vfo_update, NULL);
+          RXCHECK(1,
+            receiver[1]->agc = agc;
+            set_agc(receiver[1], agc);
+            g_idle_add(ext_vfo_update, NULL);
+          )
         }
-      } else {
-        implemented = FALSE;
-      }
+      )
 
       break;
 
@@ -1940,106 +2018,21 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
     break;
 
   case 'H': //ZZHx
-    switch (command[3]) {
-    case 'A': //ZZHA
-      implemented = FALSE;
-      break;
-
-    case 'R': //ZZHR
-      implemented = FALSE;
-      break;
-
-    case 'T': //ZZHT
-      implemented = FALSE;
-      break;
-
-    case 'U': //ZZHU
-      implemented = FALSE;
-      break;
-
-    case 'V': //ZZHV
-      implemented = FALSE;
-      break;
-
-    case 'W': //ZZHW
-      implemented = FALSE;
-      break;
-
-    case 'X': //ZZHX
-      implemented = FALSE;
-      break;
-
-    default:
-      implemented = FALSE;
-      break;
-    }
-
-    break;
-
   case 'I': //ZZIx
-    switch (command[3]) {
-    case 'D': //ZZID
-      STRLCPY(reply, "ZZID240;", 256);
-      send_resp(client->fd, reply) ;
-      break;
-
-    case 'F': //ZZIF
-      implemented = FALSE;
-      break;
-
-    case 'O': //ZZIO
-      implemented = FALSE;
-      break;
-
-    case 'S': //ZZIS
-      implemented = FALSE;
-      break;
-
-    case 'T': //ZZIT
-      implemented = FALSE;
-      break;
-
-    case 'U': //ZZIU
-      implemented = FALSE;
-      break;
-
-    default:
-      implemented = FALSE;
-      break;
-    }
-
-    break;
-
   case 'K': //ZZKx
-    switch (command[3]) {
-    case 'M': //ZZIM
-      implemented = FALSE;
-      break;
-
-    case 'O': //ZZIO
-      implemented = FALSE;
-      break;
-
-    case 'S': //ZZIS
-      implemented = FALSE;
-      break;
-
-    case 'Y': //ZZIY
-      implemented = FALSE;
-      break;
-
-    default:
-      implemented = FALSE;
-      break;
-    }
-
+    implemented = FALSE;
     break;
 
   case 'L': //ZZLx
     switch (command[3]) {
     case 'A': //ZZLA
-
-      // read/set RX0 gain
+      //CATDEF    ZZLA
+      //DESCR     Set/Read RX0 volume (AF slider)
+      //SET       ZZLAxxx;
+      //READ      ZZLA;
+      //RESP      ZZLAxxx;
+      //NOTE      x = 0...100, mapped logarithmically to -40 ... 0 dB.
+      //ENDDEF
       if (command[4] == ';') {
         // send reply back
         snprintf(reply, 256, "ZZLA%03d;", (int)(receiver[0]->volume * 100.0));
@@ -2059,14 +2052,15 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
 
       break;
 
-    case 'B': //ZZLB
-      implemented = FALSE;
-      break;
-
     case 'C': //ZZLC
-
-      // read/set RX1 gain
-      if (receivers == 2) {
+      //CATDEF    ZZLC
+      //DESCR     Set/Read RX1 volume (AF slider)
+      //SET       ZZLCxxx;
+      //READ      ZZLC;
+      //RESP      ZZLCxxx;
+      //NOTE      x = 0...100, mapped logarithmically to -40 ... 0 dB.
+      //ENDDEF
+      RXCHECK(1,
         if (command[4] == ';') {
           // send reply back
           snprintf(reply, 256, "ZZLC%03d;", (int)(255.0 * pow(10.0, 0.05 * receiver[1]->volume)));
@@ -2083,33 +2077,18 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
 
           set_af_gain(1, receiver[1]->volume);
         }
-      } else {
-        implemented = FALSE;
-      }
+      )
 
-      break;
-
-    case 'D': //ZZLD
-      implemented = FALSE;
-      break;
-
-    case 'E': //ZZLE
-      implemented = FALSE;
-      break;
-
-    case 'F': //ZZLF
-      implemented = FALSE;
-      break;
-
-    case 'G': //ZZLG
-      implemented = FALSE;
-      break;
-
-    case 'H': //ZZLH
-      implemented = FALSE;
       break;
 
     case 'I': //ZZLI
+      //CATDEF    ZZLI
+      //DESCR     Set/Read PURESIGNAL status
+      //SET       ZZLIx;
+      //READ      ZZLI;
+      //RESP      ZZLIx;
+      //NOTE      x=0: PURESIGNAL disabled, x=1: enabled.
+      //ENDDEF
       if (can_transmit) {
         if (command[4] == ';') {
           // send reply back
@@ -2117,7 +2096,7 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
           send_resp(client->fd, reply) ;
         } else {
           int ps = atoi(&command[4]);
-          transmitter->puresignal = ps;
+          tx_set_ps(transmitter, ps);
         }
 
         g_idle_add(ext_vfo_update, NULL);
@@ -2134,19 +2113,54 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
 
   case 'M': //ZZMx
     switch (command[3]) {
-    case 'A': { //ZZMA
-      int mute = atoi(&command[4]);
-      receiver[0]->mute_radio = mute;
-    }
-    break;
+    case 'A':  //ZZMA
+      //CATDEF    ZZMA
+      //DESCR     Mute/Unmute RX0
+      //SET       ZZMAx;
+      //READ      ZZMA;
+      //RESP      ZZMAx;
+      //NOTE      x=0: RX0 not muted, x=1: muted
+      //ENDDEF
+      if (command[4] == ';') {
+        snprintf(reply, 256, "ZZMA%d;", receiver[0]->mute_radio);
+        send_resp(client->fd, reply) ;
+      } else {
+        int mute = atoi(&command[4]);
+        receiver[0]->mute_radio = mute;
+      }
+      break;
 
     case 'B': //ZZMB
+      //CATDEF    ZZMB
+      //DESCR     Mute/Unmute RX1
+      //SET       ZZMBx;
+      //READ      ZZMB;
+      //RESP      ZZMBx;
+      //NOTE      x=0: RX1 not muted, x=1: muted
+      //ENDDEF
+      RXCHECK(1,
+        if (command[4] == ';') {
+          snprintf(reply, 256, "ZZMA%d;", receiver[1]->mute_radio);
+          send_resp(client->fd, reply) ;
+        } else {
+          int mute = atoi(&command[4]);
+          receiver[1]->mute_radio = mute;
+        }
+      )
+      break;
       implemented = FALSE;
       break;
 
     case 'D': //ZZMD
-
-      // set/read RX1 operating mode
+      //CATDEF    ZZMD
+      //DESCR     Set/Read VFO-A modes
+      //SET       ZZMDxx;
+      //READ      ZZMD;
+      //RESP      ZZMDxx;
+      //NOTE      Modes: LSB (x=0), USB (x=1), DSB (x=3), CWL (x=4)
+      //NOTE      CWU (x=5), FMN (x=6), AM (x=7), DIGU (x=7)
+      //NOTE      SPEC (x=8), DIGL (x=9), SAM (x=10), DRM (x=11)
+      //ENDDEF
       if (command[4] == ';') {
         snprintf(reply, 256, "ZZMD%02d;", vfo[VFO_A].mode);
         send_resp(client->fd, reply);
@@ -2157,8 +2171,15 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
       break;
 
     case 'E': //ZZME
-
-      // set/read RX2 operating mode
+      //CATDEF    ZZME
+      //DESCR     Set/Read VFO-B modes
+      //SET       ZZMEx;
+      //READ      ZZME;
+      //RESP      ZZMEx;
+      //NOTE      Modes: LSB (x=0), USB (x=1), DSB (x=3), CWL (x=4)
+      //NOTE      CWU (x=5), FMN (x=6), AM (x=7), DIGU (x=7)
+      //NOTE      SPEC (x=8), DIGL (x=9), SAM (x=10), DRM (x=11)
+      //ENDDEF
       if (command[4] == ';') {
         snprintf(reply, 256, "ZZMD%02d;", vfo[VFO_B].mode);
         send_resp(client->fd, reply);
@@ -2169,20 +2190,29 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
       break;
 
     case 'G': //ZZMG
-
-      // set/read mic gain
+      //CATDEF    ZZMG
+      //DESCR     Set/Read Mic gain (Mic gain slider)
+      //SET       ZZMGxxx;
+      //READ      ZZMG;
+      //RESP      ZZMGxxx;
+      //NOTE      xxx 0-70 mapped to -12 ... +50 dB
+      //ENDDEF
       if (command[4] == ';') {
-        snprintf(reply, 256, "ZZMG%03d;", (int)mic_gain);
+        snprintf(reply, 256, "ZZMG%03d;", (int)((mic_gain+12.0)*1.129));
         send_resp(client->fd, reply);
       } else if (command[7] == ';') {
-        mic_gain = (double)atoi(&command[4]);
+        int val = atoi(&command[4]);
+        mic_gain = ((double) val * 0.8857)  - 12.0;
       }
 
       break;
 
     case 'L': //ZZML
-
-      // read DSP modes and indexes
+      //CATDEF    ZZML
+      //DESCR     Read the list of modes  with their indices
+      //READ      ZZML;
+      //RESP      ZZML LSB00: USB01: DSB02: CWL03: CWU04: FMN05:  AM06:DIGU07:SPEC08:DIGL09: SAM10: DRM11;
+      //ENDDEF
       if (command[4] == ';') {
         snprintf(reply, 256, "ZZML LSB00: USB01: DSB02: CWL03: CWU04: FMN05:  AM06:DIGU07:SPEC08:DIGL09: SAM10: DRM11;");
         send_resp(client->fd, reply);
@@ -2191,8 +2221,16 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
       break;
 
     case 'N': //ZZMN
-
-      // read Filter Names and indexes
+      //CATDEF    ZZML
+      //DESCR     Read the list of filter names  with their indices
+      //READ      ZZML;
+      //RESP      ZZML .....
+      //NOTE      The response contains groups of 15 characters each,
+      //NOTE      where the first 5 characters are the filter name,
+      //NOTE      and then comes the filter high- and low-water mark
+      //NOTE      as a 5-digit number, possibly containing a minus
+      //NOTE      sign and blanks.
+      //ENDDEF
       if (command[6] == ';') {
         int mode = atoi(&command[4]) - 1;
         const FILTER *f = filters[mode];
@@ -2211,7 +2249,7 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
       break;
 
     case 'O': //ZZMO
-
+      //DO NOT DOCUMENT, CAN THIS BE REMOVED?
       // set/read MON status
       if (command[4] == ';') {
         snprintf(reply, 256, "ZZMO%d;", 0);
@@ -2221,7 +2259,7 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
       break;
 
     case 'R': //ZZMR
-
+      //DO NOT DOCUMENT, CAN THIS BE REMOVED?
       // set/read RX Meter mode
       if (command[4] == ';') {
         snprintf(reply, 256, "ZZMR%d;", smeter + 1);
@@ -2232,41 +2270,14 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
 
       break;
 
-    case 'S': //ZZMS
-      implemented = FALSE;
-      break;
-
     case 'T': //ZZMT
+      //DO NOT DOCUMENT, CAN THIS BE REMOVED?
       if (command[4] == ';') {
         snprintf(reply, 256, "ZZMT%02d;", 1); // forward power
         send_resp(client->fd, reply);
       } else {
       }
 
-      break;
-
-    case 'U': //ZZMU
-      implemented = FALSE;
-      break;
-
-    case 'V': //ZZMV
-      implemented = FALSE;
-      break;
-
-    case 'W': //ZZMW
-      implemented = FALSE;
-      break;
-
-    case 'X': //ZZMX
-      implemented = FALSE;
-      break;
-
-    case 'Y': //ZZMY
-      implemented = FALSE;
-      break;
-
-    case 'Z': //ZZMZ
-      implemented = FALSE;
       break;
 
     default:
@@ -2342,16 +2353,6 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
 
       break;
 
-    case 'L': //ZZNL
-      // set/read NB1 threshold
-      implemented = FALSE;
-      break;
-
-    case 'M': //ZZNM
-      // set/read NB2 threshold
-      implemented = FALSE;
-      break;
-
     case 'N': //ZZNN
 
       // set/read RX1 SNB status
@@ -2377,7 +2378,7 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
           update_noise();
         }
       } else {
-        implemented = FALSE;
+      implemented = FALSE;
       }
 
       break;
@@ -2488,18 +2489,13 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
     break;
 
   case 'O': //ZZOx
-    switch (command[3]) {
-    default:
-      implemented = FALSE;
-      break;
-    }
-
+    implemented = FALSE;
     break;
 
   case 'P': //ZZPx
     switch (command[3]) {
     case 'A': //ZZPA
-
+      //DO NOT DOCUMENT, CAN THIS BE REMOVED?
       // set/read preamp setting
       if (command[4] == ';') {
         int a = adc[receiver[0]->adc].attenuation;
@@ -2551,14 +2547,14 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
       break;
 
     case 'Y': // ZZPY
-
+      //DO NOT DOCUMENT, CAN THIS BE REMOVED?
       // set/read Zoom
       if (command[4] == ';') {
-        snprintf(reply, 256, "ZZPY%d;", receiver[1]->zoom);
+        snprintf(reply, 256, "ZZPY%d;", receiver[0]->zoom);
         send_resp(client->fd, reply);
       } else if (command[7] == ';') {
         int zoom = atoi(&command[4]);
-        set_zoom(1, zoom);
+        set_zoom(0, zoom);
       }
 
       break;
@@ -2571,12 +2567,7 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
     break;
 
   case 'Q': //ZZQx
-    switch (command[3]) {
-    default:
-      implemented = FALSE;
-      break;
-    }
-
+    implemented = FALSE;
     break;
 
   case 'R': //ZZRx
@@ -2647,7 +2638,6 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
       break;
 
     case 'T': //ZZRT
-
       // set/read RIT enable
       if (command[4] == ';') {
         snprintf(reply, 256, "ZZRT%d;", vfo[VFO_A].rit_enabled);
@@ -2700,14 +2690,6 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
 
       break;
 
-    case 'D': //ZZSD
-      implemented = FALSE;
-      break;
-
-    case 'F': //ZZSF
-      implemented = FALSE;
-      break;
-
     case 'G': //ZZSG
 
       // move VFO B down 1 step
@@ -2745,10 +2727,6 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
 
       break;
 
-    case 'N': //ZZSN
-      implemented = FALSE;
-      break;
-
     case 'P': //ZZSP
 
       // set/read split
@@ -2760,26 +2738,6 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
         radio_set_split(val);
       }
 
-      break;
-
-    case 'R': //ZZSR
-      implemented = FALSE;
-      break;
-
-    case 'S': //ZZSS
-      implemented = FALSE;
-      break;
-
-    case 'T': //ZZST
-      implemented = FALSE;
-      break;
-
-    case 'U': //ZZSU
-      implemented = FALSE;
-      break;
-
-    case 'V': //ZZSV
-      implemented = FALSE;
       break;
 
     case 'W': //ZZSW
@@ -2795,14 +2753,6 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
 
       break;
 
-    case 'Y': //ZZSY
-      implemented = FALSE;
-      break;
-
-    case 'Z': //ZZSZ
-      implemented = FALSE;
-      break;
-
     default:
       implemented = FALSE;
       break;
@@ -2812,46 +2762,6 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
 
   case 'T': //ZZTx
     switch (command[3]) {
-    case 'A': //ZZTA
-      implemented = FALSE;
-      break;
-
-    case 'B': //ZZTB
-      implemented = FALSE;
-      break;
-
-    case 'F': //ZZTF
-      implemented = FALSE;
-      break;
-
-    case 'H': //ZZTH
-      implemented = FALSE;
-      break;
-
-    case 'I': //ZZTI
-      implemented = FALSE;
-      break;
-
-    case 'L': //ZZTL
-      implemented = FALSE;
-      break;
-
-    case 'M': //ZZTM
-      implemented = FALSE;
-      break;
-
-    case 'O': //ZZTO
-      implemented = FALSE;
-      break;
-
-    case 'P': //ZZTP
-      implemented = FALSE;
-      break;
-
-    case 'S': //ZZTS
-      implemented = FALSE;
-      break;
-
     case 'U': //ZZTU
 
       // sets or reads TUN status
@@ -2862,10 +2772,6 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
         tune_update(atoi(&command[4]));
       }
 
-      break;
-
-    case 'V': //ZZTV
-      implemented = FALSE;
       break;
 
     case 'X': //ZZTX
@@ -2888,104 +2794,15 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
     break;
 
   case 'U': //ZZUx
-    switch (command[3]) {
-    case 'A': //ZZUA
-      implemented = FALSE;
-      break;
-
-    case 'S': //ZZUS
-      implemented = FALSE;
-      break;
-
-    case 'T': //ZZUT
-      implemented = FALSE;
-      break;
-
-    case 'X': //ZZUX
-      implemented = FALSE;
-      break;
-
-    case 'Y': //ZZUY
-      implemented = FALSE;
-      break;
-
-    default:
-      implemented = FALSE;
-      break;
-    }
-
+    implemented = FALSE;
     break;
 
   case 'V': //ZZVx
     switch (command[3]) {
-    case 'A': //ZZVA
-      implemented = FALSE;
-      break;
-
-    case 'B': //ZZVB
-      implemented = FALSE;
-      break;
-
-    case 'C': //ZZVC
-      implemented = FALSE;
-      break;
-
-    case 'D': //ZZVD
-      implemented = FALSE;
-      break;
-
-    case 'E': //ZZVE
-      implemented = FALSE;
-      break;
-
-    case 'F': //ZZVF
-      implemented = FALSE;
-      break;
-
-    case 'H': //ZZVH
-      implemented = FALSE;
-      break;
-
-    case 'I': //ZZVI
-      implemented = FALSE;
-      break;
-
-    case 'J': //ZZVJ
-      implemented = FALSE;
-      break;
-
-    case 'K': //ZZVK
-      implemented = FALSE;
-      break;
-
     case 'L': //ZZVL
       // set/get VFO Lock
       locked = command[4] == '1';
       g_idle_add(ext_vfo_update, NULL);
-      break;
-
-    case 'M': //ZZVM
-      implemented = FALSE;
-      break;
-
-    case 'N': //ZZVN
-      implemented = FALSE;
-      break;
-
-    case 'O': //ZZVO
-      implemented = FALSE;
-      break;
-
-    case 'P': //ZZVP
-      implemented = FALSE;
-      break;
-
-    case 'Q': //ZZVQ
-      implemented = FALSE;
-      break;
-
-    case 'R': //ZZVR
-      implemented = FALSE;
       break;
 
     case 'S': { //ZZVS
@@ -3001,34 +2818,6 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
     }
     break;
 
-    case 'T': //ZZVT
-      implemented = FALSE;
-      break;
-
-    case 'U': //ZZVU
-      implemented = FALSE;
-      break;
-
-    case 'V': //ZZVV
-      implemented = FALSE;
-      break;
-
-    case 'W': //ZZVW
-      implemented = FALSE;
-      break;
-
-    case 'X': //ZZVX
-      implemented = FALSE;
-      break;
-
-    case 'Y': //ZZVY
-      implemented = FALSE;
-      break;
-
-    case 'Z': //ZZVZ
-      implemented = FALSE;
-      break;
-
     default:
       implemented = FALSE;
       break;
@@ -3037,100 +2826,7 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
     break;
 
   case 'W': //ZZWx
-    switch (command[3]) {
-    case 'A': //ZZWA
-      implemented = FALSE;
-      break;
-
-    case 'B': //ZZWB
-      implemented = FALSE;
-      break;
-
-    case 'C': //ZZWC
-      implemented = FALSE;
-      break;
-
-    case 'D': //ZZWD
-      implemented = FALSE;
-      break;
-
-    case 'E': //ZZWE
-      implemented = FALSE;
-      break;
-
-    case 'F': //ZZWF
-      implemented = FALSE;
-      break;
-
-    case 'G': //ZZWG
-      implemented = FALSE;
-      break;
-
-    case 'H': //ZZWH
-      implemented = FALSE;
-      break;
-
-    case 'J': //ZZWJ
-      implemented = FALSE;
-      break;
-
-    case 'K': //ZZWK
-      implemented = FALSE;
-      break;
-
-    case 'L': //ZZWL
-      implemented = FALSE;
-      break;
-
-    case 'M': //ZZWM
-      implemented = FALSE;
-      break;
-
-    case 'N': //ZZWN
-      implemented = FALSE;
-      break;
-
-    case 'O': //ZZWO
-      implemented = FALSE;
-      break;
-
-    case 'P': //ZZWP
-      implemented = FALSE;
-      break;
-
-    case 'Q': //ZZWQ
-      implemented = FALSE;
-      break;
-
-    case 'R': //ZZWR
-      implemented = FALSE;
-      break;
-
-    case 'S': //ZZWS
-      implemented = FALSE;
-      break;
-
-    case 'T': //ZZWT
-      implemented = FALSE;
-      break;
-
-    case 'U': //ZZWU
-      implemented = FALSE;
-      break;
-
-    case 'V': //ZZWV
-      implemented = FALSE;
-      break;
-
-    case 'W': //ZZWW
-      implemented = FALSE;
-      break;
-
-    default:
-      implemented = FALSE;
-      break;
-    }
-
+    implemented = FALSE;
     break;
 
   case 'X': //ZZXx
@@ -3152,12 +2848,8 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
 
       break;
 
-    case 'H': //ZZXH
-      implemented = FALSE;
-      break;
-
     case 'N': //ZZXN
-
+      //DO NOT DOCUMENT, CAN THIS BE REMOVED?
       // read combined RX1 status
       if (command[4] == ';') {
         int status = ((receiver[0]->agc) & 0x03);
@@ -3198,7 +2890,7 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
       break;
 
     case 'O': //ZZXO
-
+      //DO NOT DOCUMENT, CAN THIS BE REMOVED?
       // read combined RX2 status
       if (receivers == 2) {
         if (command[4] == ';') {
@@ -3256,12 +2948,8 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
 
       break;
 
-    case 'T': //ZZXT
-      implemented = FALSE;
-      break;
-
     case 'V': //ZZXV
-
+      //DO NOT DOCUMENT, CAN THIS BE REMOVED?
       // read combined VFO status
       if (command[4] == ';') {
         int status = 0;
@@ -3311,18 +2999,6 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
 
   case 'Y': //ZZYx
     switch (command[3]) {
-    case 'A': //ZZYA
-      implemented = FALSE;
-      break;
-
-    case 'B': //ZZYB
-      implemented = FALSE;
-      break;
-
-    case 'C': //ZZYC
-      implemented = FALSE;
-      break;
-
     case 'R': //ZZYR
 
       // switch receivers
@@ -3349,17 +3025,13 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
 
   case 'Z': //ZZZx
     switch (command[3]) {
-    case 'A': //ZZZA
-      implemented = FALSE;
-      break;
-
-    case 'B': //ZZZB
-      implemented = FALSE;
-      break;
-
-    case 'D': //ZZZD  ANDROMEDA command applied to VFO of active receiver
-
-      // move VFO down
+    case 'D': //ZZZD
+      //CATDEF    ZZZD
+      //DESCR     Move down frequency of active receiver
+      //SET       ZZZDxx;
+      //NOTE      ANDROMEDA extension. x = number of steps.
+      //NOTE      The "VFO encoder divisor" is applied to the steps
+      //ENDDEF
       if (command[6] == ';') {
         static int steps = 0;
         steps += atoi(&command[4]);
@@ -3373,8 +3045,12 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
       break;
 
     case 'E': //ZZZE ANDROMEDA commmand
-
-      // Encoders
+      //CATDEF    ZZZE
+      //DESCR     Handle ANDROMEDA encoders
+      //SET       ZZZExxx;
+      //NOTE      ANDROMEDA extension.
+      //NOTE      x encodes the encoder and the direction.
+      //ENDDEF
       if (command[7] == ';') {
         int v, p;
 
@@ -3461,9 +3137,24 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
 
       break;
 
-    case 'P': //ZZZP ANDROMEDA command
+    case 'I': //ZZZI ANDROMEDA info
+      //CATDEF    ZZZI
+      //DESCR     ANDROMEDA reports
+      //RESP      ZZZIxxy;
+      //NOTE      Automatic generated response for ANDROMEDA controller.
+      //NOTE      xx encodes the type of information and y the value.
+      //NOTE      For example ZZZI081; means "RIT is enabled".
+      //ENDDEF
+      implemented = FALSE;  // this command should never ARRIVE
+      break;
 
-      // Push Buttons
+    case 'P': //ZZZP ANDROMEDA command
+      //CATDEF    ZZZP
+      //DESCR     Handle ANDROMEDA push-buttons
+      //SET       ZZZPxxx;
+      //NOTE      ANDROMEDA extension. x = number of steps.
+      //NOTE      x encodes the button and the press/release status
+      //ENDDEF
       if (command[7] == ';') {
         static int numpad_active = 0;
         static int longpress = 0;
@@ -3789,8 +3480,13 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
       break;
 
     case 'S': //ZZZS ANDROMEDA command
-
-      // ANDROMEDA version info
+      //CATDEF    ZZZS
+      //DESCR     Log ANDROMEDA version
+      //SET       ZZZSxxyzabc;
+      //NOTE      ANDROMEDA extension.
+      //NOTE      The ANDROMEDA hardware (yz) and software (abc) version
+      //NOTE      is logged in piHPSDR's log file.
+      //ENDDEF
       if (command[11] == ';') {
         t_print("RIGCTL:INFO: Andromeda FP Version: h/w:%c%c s/w:%c%c%c\n",
                 command[6], command[7], command[8], command[9], command[10]);
@@ -3799,8 +3495,12 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
       break;
 
     case 'U': //ZZZU ANDROMEDA command operating on VFO of active receiver
-
-      // move VFO up
+      //CATDEF    ZZZU
+      //DESCR     Move up frequency of active receiver
+      //SET       ZZZUxx;
+      //NOTE      ANDROMEDA extension. x = number of steps.
+      //NOTE      The "VFO encoder divisor" is applied to the steps
+      //ENDDEF
       if (command[6] == ';') {
         static int steps = 0;
         steps += atoi(&command[4]);
@@ -3811,10 +3511,6 @@ gboolean parse_extended_cmd (const char *command, const CLIENT *client) {
         }
       }
 
-      break;
-
-    case 'Z': //ZZZZ
-      implemented = FALSE;
       break;
 
     default:
@@ -3843,6 +3539,10 @@ int parse_cmd(void *data) {
 
   switch (command[0]) {
   case '#':
+    //CATDEF    \#S
+    //DESCR     Shutdown Console
+    //SET       \#S;
+    //ENDDEF
     if (command[1] == 'S' && command[2] == ';') {
       stop_program();
       (void) system("shutdown -h -P now");
@@ -3862,37 +3562,46 @@ int parse_cmd(void *data) {
 
     case 'G': //AG
 
-      // set/read AF Gain
-      if (command[3] == ';' && command[2] == '0') { // query, main receiver
-        // send reply back (covert from -40...0dB to 0..255)
-        snprintf(reply, 256, "AG0%03d;", (int)(255.0 * pow(10.0, 0.05 * receiver[0]->volume)));
-        send_resp(client->fd, reply) ;
-      } else if (command[6] == ';' && command[2] == '0') {
+      //CATDEF    AG
+      //DESCR     Sets/Reads audio volume (AF slider)
+      //SET       AGxyyy;
+      //READ      AGx;
+      //RESP      AGxyyy;
+      //NOTE      x=0 sets RX0 volume, x=1 RX1
+      //NOTE      y is 0...255 and mapped logarithmically to the volume -40...0 dB
+      //ENDDEF
+      if (command[3] == ';') {
+        int id=SET(command[2] == '1');
+        RXCHECK(id,
+         snprintf(reply, 256, "AG%1d%03d;", id, (int)(255.0 * pow(10.0, 0.05 * receiver[id]->volume)));
+         send_resp(client->fd, reply);
+        )
+      } else if (command[6] == ';') {
+        int id=SET(command[2] == '1');
         int gain = atoi(&command[3]);
+        double vol = (gain < 3) ? -40.0 : 20.0 * log10((double) gain / 255.0);
 
-        // gain is 0...255
-        if (gain < 3 ) {
-          receiver[0]->volume = -40.0;
-        } else {
-          receiver[0]->volume = 20.0 * log10((double) gain / 255.0);
-        }
-
-        set_af_gain(0, receiver[0]->volume);
+        RXCHECK(id, receiver[id]->volume = vol; set_af_gain(0, receiver[id]->volume));
       }
 
       break;
 
     case 'I': //AI
 
-      // set/read Auto Information
-      // many clients start the connection with an "AI0" command.
-      // piHPSDR is constantly in an "AI0" state, therefore
-      // silently ignore AI0 commands and flag an error for
-      // all other possiblities
-      if (command[2] == '0' && command[3] == ';') {
-        // do nothing
-      } else {
-        implemented = FALSE;
+      //CATDEF    AI
+      //DESCR     Sets/Reads auto reporting status
+      //SET       AIx;
+      //READ      AI;
+      //RESP      AIx;
+      //NOTE      x=0: auto-reporting disabled, x=1: enabled
+      //NOTE      Auto-reporting is affected for the client that sends this command.
+      //ENDDEF
+      if (command[2] == ';') {
+        snprintf(reply, 256, "AI%d;", client->auto_reporting);
+        send_resp(client->fd, reply) ;
+      } else if (command[3] == ';') {
+        int id=SET(command[2] == '1');
+        client->auto_reporting = id;
       }
 
       break;
@@ -3932,7 +3641,11 @@ int parse_cmd(void *data) {
       break;
 
     case 'D': //BD
-      //band down 1 band
+      //CATDEF    BD
+      //DESCR     VFO-A Band down
+      //SET       BD;
+      //NOTE      Wraps from the lowest to the highest band.
+      //ENDDEF
       band_minus(receiver[0]->id);
       break;
 
@@ -3942,7 +3655,11 @@ int parse_cmd(void *data) {
       break;
 
     case 'U': //BU
-      //band up 1 band
+      //CATDEF    BU
+      //DESCR     VFO-A Band up
+      //SET       BU;
+      //NOTE      Wraps from the highest to the lowest band.
+      //ENDDEF
       band_plus(receiver[0]->id);
       break;
 
@@ -3982,9 +3699,26 @@ int parse_cmd(void *data) {
 
     case 'N': //CN
 
+      //CATDEF    CN
+      //DESCR     Sets/Reads the CTCSS frequency
+      //SET       CNxx;
+      //READ      CN;
+      //RESP      CNxx;
+      //NOTE      x =  1...38. CTCSS frequencies in Hz are:
+      //NOTE      67.0 (x=1),  71.9 (x=2),  74.4 (x=3),  77.0 (x=4),
+      //NOTE      79.7 (x=5),  82.5 (x=6),  85.4 (x=7),  88.5 (x=8),
+      //NOTE      91.5 (x=9),  94.8 (x=10), 97.4 (x=11), 100.0 (x=12)
+      //NOTE      103.5 (x=13), 107.2 (x=14), 110.9 (x=15), 114.8 (x=16)
+      //NOTE      118.8 (x=17), 123.0 (x=18), 127.3 (x=19), 131.8 (x=20)
+      //NOTE      136.5 (x=21), 141.3 (x=22), 146.2 (x=23), 151.4 (x=24)
+      //NOTE      156.7 (x=25), 162.2 (x=26), 167.9 (x=27), 173.8 (x=28)
+      //NOTE      179.9 (x=29), 186.2 (x=30), 192.8 (x=31), 203.5 (x=32)
+      //NOTE      210.7 (x=33), 218.1 (x=34), 225.7 (x=35), 233.6 (x=36)
+      //NOTE      241.8 (x=37), 250.3 (x=38)
+      //ENDDEF
       // sets/reads CTCSS function (frequency)
       if (can_transmit) {
-        if (command[3] == ';') {
+        if (command[2] == ';') {
           snprintf(reply, 256, "CN%02d;", transmitter->ctcss + 1);
           send_resp(client->fd, reply) ;
         } else if (command[4] == ';') {
@@ -3998,13 +3732,19 @@ int parse_cmd(void *data) {
 
     case 'T': //CT
 
-      // sets/reads CTCSS status (on/off)
+      //CATDEF    CT
+      //DESCR     Enable/Disable CTCSS
+      //SET       CTx;
+      //READ      CT;
+      //RESP      CTx;
+      //NOTE      x = 0: CTCSS off, x=1: on
+      //ENDDEF
       if (can_transmit) {
         if (command[2] == ';') {
           snprintf(reply, 256, "CT%d;", transmitter->ctcss_enabled);
           send_resp(client->fd, reply) ;
         } else if (command[3] == ';') {
-          int state = atoi(&command[2]);
+          int state = SET(command[2] == '1');
           transmitter_set_ctcss(transmitter, state, transmitter->ctcss);
           g_idle_add(ext_vfo_update, NULL);
         }
@@ -4027,7 +3767,10 @@ int parse_cmd(void *data) {
       break;
 
     case 'N': //DN
-      // move VFO A down 1 step size
+      //CATDEF    DN
+      //DESCR     VFO-A down  onw step
+      //SET       DN;
+      //ENDDEF
       vfo_id_step(VFO_A, -1);
       break;
 
@@ -4061,7 +3804,13 @@ int parse_cmd(void *data) {
     switch (command[1]) {
     case 'A': //FA
 
-      // set/read VFO-A frequency
+      //CATDEF    FA
+      //DESCR     Set/Read VFO-A frequency
+      //SET       FAxxxxxxxxxxx;
+      //READ      FA;
+      //RESP      FAxxxxxxxxxxx;
+      //NOTE      x in Hz, left-padded with zeroes
+      //ENDDEF
       if (command[2] == ';') {
         if (vfo[VFO_A].ctun) {
           snprintf(reply, 256, "FA%011lld;", vfo[VFO_A].ctun_frequency);
@@ -4080,7 +3829,13 @@ int parse_cmd(void *data) {
 
     case 'B': //FB
 
-      // set/read VFO-B frequency
+      //CATDEF    FB
+      //DESCR     Set/Read VFO-B frequency
+      //SET       FBxxxxxxxxxxx;
+      //READ      FB;
+      //RESP      FBxxxxxxxxxxx;
+      //NOTE      x in Hz, left-padded with zeroes
+      //ENDDEF
       if (command[2] == ';') {
         if (vfo[VFO_B].ctun) {
           snprintf(reply, 256, "FB%011lld;", vfo[VFO_B].ctun_frequency);
@@ -4109,18 +3864,20 @@ int parse_cmd(void *data) {
 
     case 'R': //FR
 
-      // set/read transceiver receive VFO
+      //CATDEF    FR
+      //DESCR     Set/Read active receiver
+      //SET       FRx;
+      //READ      FR;
+      //RESP      FRx;
+      //NOTE      x = 0 (RX0) or 1 (RX1)
+      //ENDDEF
       if (command[2] == ';') {
         snprintf(reply, 256, "FR%d;", active_receiver->id);
         send_resp(client->fd, reply) ;
       } else if (command[3] == ';') {
-        int id = atoi(&command[2]);
+        int id = SET(command[2] == '1');
 
-        if (id >= 0 && id < receivers) {
-          schedule_action(id == 0 ? RX1 : RX2, PRESSED, 0);
-        } else {
-          implemented = FALSE;
-        }
+        RXCHECK(id, schedule_action(id == 0 ? RX1 : RX2, PRESSED, 0));
 
         g_idle_add(ext_vfo_update, NULL);
       }
@@ -4133,21 +3890,34 @@ int parse_cmd(void *data) {
       break;
 
     case 'T': //FT
-
-      // set/read transceiver transmit VFO
+      //CATDEF    FT
+      //DESCR     Set/Read Split status
+      //SET       FTx;
+      //READ      FT;
+      //RESP      FTx;
+      //NOTE      x=0: TX VFO is the VFO controlling the active receiver, x=1: the other VFO.
+      //ENDDEF
       if (command[2] == ';') {
         snprintf(reply, 256, "FT%d;", split);
         send_resp(client->fd, reply) ;
       } else if (command[3] == ';') {
-        int val = atoi(&command[2]);
-        radio_set_split(val);
+        int id = SET(command[2] == '1');
+        radio_set_split(id);
       }
 
       break;
 
     case 'W': //FW
-
-      // set/read filter width. Switch to Var1 only when setting
+      //CATDEF    FW
+      //DESCR     Set/Read VFO-A filter width (CW, AM, FM)
+      //SET       FWxxxx;
+      //READ      FW;
+      //RESP      FWxxxx;
+      //NOTE      When setting, this switches to the Var1 filter
+      //NOTE      Only valid for CW, FM, AM. Use SH/SL for LSB, USB, DIGL, DIGU.
+      //NOTE      For AM, 8kHz filter width (x=0) or  16 kHz (x$\ne$0)
+      //NOTE      For FM, 2.5kHz deviation (x=0) or 5 kHz (x$\ne$=0)
+      //ENDDEF
       if (command[2] == ';') {
         int val = 0;
         FILTER *mode_filters = filters[vfo[VFO_A].mode];
@@ -4250,13 +4020,18 @@ int parse_cmd(void *data) {
   case 'G':
     switch (command[1]) {
     case 'T': //GT
-
-      // set/read RX1 AGC
+      //CATDEF    GT
+      //DESCR     Set/Read RX0 AGC
+      //SET       GTxxx;
+      //READ      GT;
+      //RESP      GTxxx;
+      //NOTE      x=0: AGC OFF, x=5: LONG, x=10: SLOW
+      //NOTE      x=15: MEDIUM, x=20: FAST
+      //ENDDEF
       if (command[2] == ';') {
         snprintf(reply, 256, "GT%03d;", receiver[0]->agc * 5);
         send_resp(client->fd, reply) ;
       } else if (command[5] == ';') {
-        // update RX1 AGC
         receiver[0]->agc = atoi(&command[2]) / 5;
         set_agc(receiver[0], receiver[0]->agc);
         g_idle_add(ext_vfo_update, NULL);
@@ -4283,12 +4058,37 @@ int parse_cmd(void *data) {
   case 'I':
     switch (command[1]) {
     case 'D': //ID
-      // get ID
-      STRLCPY(reply, "ID019;", 256); // TS-2000
+      //CATDEF    ID
+      //DESCR     Get radio model ID
+      //READ      ID;
+      //RESP      IDxxx;
+      //NOTE      piHPSDR responds ID019; (so does the Kenwood TS-2000)
+      //ENDDEF
+      STRLCPY(reply, "ID019;", 256);
       send_resp(client->fd, reply);
       break;
 
     case 'F': { //IF
+      //CATDEF    IF
+      //DESCR     Get VFO-A Frequency/Mode etc.
+      //READ      IF;
+      //RESP      IFxxxxxxxxxxxyyyyzzzzzzabc|ddefghikllm;
+      //NOTE      x : VFO-A Frequency (11 digit)
+      //NOTE      y : VFO-A step size
+      //NOTE      z : VFO-A rit step size
+      //NOTE      a : VFO-A rit enabled (0/1)
+      //NOTE      b : VFO-A xit enabled (0/1)
+      //NOTE      c : always 0
+      //NOTE      d : always 0
+      //NOTE      e : RX (e=0) or TX (e=1)
+      //NOTE      f : mode (TS-2000 encoding, see MD command)
+      //NOTE      g : always 0
+      //NOTE      h : always 0
+      //NOTE      i : Split enabled (i=1) or disabled (i=0)
+      //NOTE      k : CTCSS enabled (i=2) or disabled (i=0)
+      //NOTE      l : CTCSS frequency (1 - 38), see CN command
+      //NOTE      m : always 0
+      //ENDDEF
       int mode = ts2000_mode(vfo[VFO_A].mode);
       int tx_xit_en = 0;
       int tx_ctcss_en = 0;
@@ -4296,7 +4096,7 @@ int parse_cmd(void *data) {
 
       if (can_transmit) {
         tx_xit_en   = vfo[get_tx_vfo()].xit_enabled;
-        tx_ctcss    = transmitter->ctcss;
+        tx_ctcss    = transmitter->ctcss + 1;
         tx_ctcss_en = transmitter->ctcss_enabled;
       }
 
@@ -4309,8 +4109,7 @@ int parse_cmd(void *data) {
     break;
 
     case 'S': //IS
-
-      // set/read IF shift
+      //DO NOT DOCUMENT, CAN THIS BE REMOVED?
       if (command[2] == ';') {
         STRLCPY(reply, "IS 0000;", 256);
         send_resp(client->fd, reply);
@@ -4339,8 +4138,13 @@ int parse_cmd(void *data) {
   case 'K':
     switch (command[1]) {
     case 'S': //KS
-
-      // set/read keying speed
+      //CATDEF    KS
+      //DESCR     Set CW speed
+      //SET       KSxxx;
+      //READ      KS;
+      //RESP      KSxxx;
+      //NOTE      x (1 - 60) is in wpm
+      //ENDDEF
       if (command[2] == ';') {
         snprintf(reply, 256, "KS%03d;", cw_keyer_speed);
         send_resp(client->fd, reply);
@@ -4352,14 +4156,21 @@ int parse_cmd(void *data) {
           keyer_update();
           g_idle_add(ext_vfo_update, NULL);
         }
-      } else {
       }
 
       break;
 
     case 'Y': //KY
-
-      // convert the characters into Morse Code
+      //CATDEF    KY
+      //DESCR     Send Morse/query Morse buffer
+      //SET       KYxyyy...yyy;
+      //READ      KY;
+      //RESP      KYx;
+      //NOTE      When setting (sending), x must be a space.
+      //NOTE      When reading, x=1 indicates buffer space is available, x=0  buffer full
+      //NOTE      y: string of up to 24 characters NOT containing ';'
+      //NOTE      trailing blanks are ignored in y, but if it is completely blank it causes an inter-word space.
+      //ENDDEF
       if (command[2] == ';') {
         //
         // reply "buffer full" condition if the buffer contains
@@ -4418,8 +4229,14 @@ int parse_cmd(void *data) {
   case 'L':
     switch (command[1]) {
     case 'K': //LK
-
-      // set/read key lock
+      //CATDEF    LK
+      //DESCR     Set/Read Lock status
+      //SET       LKxx;
+      //READ      LK;
+      //RESP      LKxx;
+      //NOTE      When setting, any nonzero xx sets lock status
+      //NOTE      When reading, x = 00 (not locked) or x = 11 (locked)
+      //ENDDEF
       if (command[2] == ';') {
         snprintf(reply, 256, "LK%d%d;", locked, locked);
         send_resp(client->fd, reply);
@@ -4455,8 +4272,15 @@ int parse_cmd(void *data) {
       break;
 
     case 'D': //MD
-
-      // set/read operating mode
+      //CATDEF    MD
+      //DESCR     Set/Read VFO-A modes
+      //SET       MDx;
+      //READ      MD;
+      //RESP      MDx;
+      //NOTE      Kenwood-stype  mode  list:
+      //NOTE      LSB (x=1), USB (x=2), CWU (x=3), FMN (x=4),
+      //NOTE      AM (x=5), DIGL (x=6), CWL (x=7), DIGU (x=9)
+      //ENDDEF
       if (command[2] == ';') {
         int mode = ts2000_mode(vfo[VFO_A].mode);
         snprintf(reply, 256, "MD%d;", mode);
@@ -4512,14 +4336,21 @@ int parse_cmd(void *data) {
       break;
 
     case 'G': //MG
-
-      // set/read Menu Gain (-12..60 converts to 0..100)
+      //CATDEF    MG
+      //DESCR     Set/Read Mic gain (Mic gain slider)
+      //SET       MGxxx;
+      //READ      MG;
+      //RESP      MGxxx;
+      //NOTE      x 0-100 mapped to -12 ... +50 dB
+      //ENDDEF
       if (command[2] == ';') {
-        snprintf(reply, 256, "MG%03d;", (int)(((mic_gain + 12.0) / 72.0) * 100.0));
+        snprintf(reply, 256, "MG%03d;", (int)(((mic_gain + 12.0) / 62.0) * 100.0));
         send_resp(client->fd, reply);
       } else if (command[5] == ';') {
         double gain = (double)atoi(&command[2]);
-        gain = ((gain / 100.0) * 72.0) - 12.0;
+        gain = ((gain / 100.0) * 62.0) - 12.0;
+        if (gain < -12.0) { gain = -12.0; }
+        if (gain >  50.0) { gain =  50.0; }
         set_mic_gain(gain);
       }
 
@@ -4560,8 +4391,13 @@ int parse_cmd(void *data) {
   case 'N':
     switch (command[1]) {
     case 'B': //NB
-
-      // set/read noise blanker
+      //CATDEF    NB
+      //DESCR     Set/Read RX0 noise blanker
+      //SET       NBx;
+      //READ      NB;
+      //RESP      NBx;
+      //NOTE      x=0: NB off, x=1: NB1 on, x=2: NB2 on
+      //ENDDEF
       if (command[2] == ';') {
         snprintf(reply, 256, "NB%d;", receiver[0]->nb);
         send_resp(client->fd, reply);
@@ -4578,8 +4414,13 @@ int parse_cmd(void *data) {
       break;
 
     case 'R': //NR
-
-      // set/read noise reduction
+      //CATDEF    NR
+      //DESCR     Set/Read RX0 noise reduction
+      //SET       NRx;
+      //READ      NR;
+      //RESP      NRx;
+      //NOTE      x=0: NR off, x=1: NR1 on, x=2: NR2 on
+      //ENDDEF
       if (command[2] == ';') {
         snprintf(reply, 256, "NR%d;", receiver[0]->nr);
         send_resp(client->fd, reply);
@@ -4591,8 +4432,13 @@ int parse_cmd(void *data) {
       break;
 
     case 'T': //NT
-
-      // set/read ANF
+      //CATDEF    NT
+      //DESCR     Set/Read RX0 auto notch filter
+      //SET       NTx;
+      //READ      NT;
+      //RESP      NTx;
+      //NOTE      x=0: Automatic Notch Filter off, x=1: on
+      //ENDDEF
       if (command[2] == ';') {
         snprintf(reply, 256, "NT%d;", receiver[0]->anf);
         send_resp(client->fd, reply);
@@ -4637,8 +4483,15 @@ int parse_cmd(void *data) {
   case 'P':
     switch (command[1]) {
     case 'A': //PA
-
-      // set/read preamp function status
+      //CATDEF    PA
+      //DESCR     Set/Read RX0 preamp status
+      //SET       PAx;
+      //READ      PA;
+      //RESP      PAx;
+      //NOTE      Applies to RX0
+      //NOTE      x=0: RX0 preamp off, x=1: on
+      //NOTE      newer HPSDR radios do not have a switchable preamp
+      //ENDDEF
       if (command[2] == ';') {
         snprintf(reply, 256, "PA%d0;", receiver[0]->preamp);
         send_resp(client->fd, reply);
@@ -4654,8 +4507,13 @@ int parse_cmd(void *data) {
       break;
 
     case 'C': //PC
-
-      // set/read PA Power
+      //CATDEF    PC
+      //DESCR     Set/Read TX power (Drive slider)
+      //SET       PCxxx;
+      //READ      PC;
+      //RESP      PCxxx;
+      //NOTE      x = 0...100
+      //ENDDEF
       if (can_transmit) {
         if (command[2] == ';') {
           snprintf(reply, 256, "PC%03d;", (int)transmitter->drive);
@@ -4678,8 +4536,14 @@ int parse_cmd(void *data) {
       break;
 
     case 'L': //PL
-
-      // set/read speach processor input/output level
+      //CATDEF    PL
+      //DESCR     Set/Read TX compressor level
+      //SET       PLxxxyyy;
+      //READ      PL;
+      //RESP      PLxxxyyy;
+      //NOTE      x = 0...100, maps to compression 0...20 dB.
+      //NOTE      y ignored when setting, y=0 when reading
+      //ENDDEF
       if (can_transmit) {
         if (command[2] == ';') {
           snprintf(reply, 256, "PL%03d000;", (int)((transmitter->compressor_level / 20.0) * 100.0));
@@ -4706,8 +4570,15 @@ int parse_cmd(void *data) {
       break;
 
     case 'S': //PS
-
-      // set/read Power (always ON)
+      //CATDEF    PS
+      //DESCR     Set/Read power status
+      //SET       PSx;
+      //READ      PS;
+      //RESP      PSx;
+      //NOTE      x = 0: Power on, x=1: off
+      //NOTE      When setting, x=0 is ignored and x=1 leads to shutdown
+      //NOTE      Reading always reports x=1
+      //ENDDEF
       if (command[2] == ';') {
         snprintf(reply, 256, "PS1;");
         send_resp(client->fd, reply);
@@ -4715,14 +4586,12 @@ int parse_cmd(void *data) {
         int pwrc = atoi(&command[2]);
 
         if ( pwrc == 0 ) {
-          // power-off command: note the reply will not be sent.
-          snprintf(reply, 256, "PS0;");
           stop_program();
           system("sudo /sbin/shutdown -P now");
           _exit(0);
         } else {
-          // power-on command. Just reply then "on" state
-          snprintf(reply, 256, "PS1;");
+          // power-on command. Should there be a reply?
+          // snprintf(reply, 256, "PS1;");
         }
       }
 
@@ -4762,6 +4631,16 @@ int parse_cmd(void *data) {
   case 'R':
     switch (command[1]) {
     case 'A': //RA
+      //CATDEF    RA
+      //DESCR     Set/Read RX0 attenuator or RX0 gain
+      //SET       RAxx;
+      //READ      RA;
+      //RESP      RAxxyy;
+      //NOTE      x = 0 ... 99 is mapped to the radio's range
+      //NOTE      HPSDR radios: attenuator range 0...31 dB
+      //NOTE      HermesLite-II etc.: gain range -12...48 dB
+      //NOTE      y is always zero.
+      //ENDDEF
 
       // set/read Attenuator function
       if (command[2] == ';') {
@@ -4800,8 +4679,10 @@ int parse_cmd(void *data) {
       break;
 
     case 'C': //RC
-
-      // clears RIT
+      //CATDEF    RC
+      //DESCR     Clear VFO-A RIT value
+      //SET       RC;
+      //ENDDEF
       if (command[2] == ';') {
         vfo[VFO_A].rit = 0;
         g_idle_add(ext_vfo_update, NULL);
@@ -4810,8 +4691,12 @@ int parse_cmd(void *data) {
       break;
 
     case 'D': //RD
-
-      // decrements RIT Frequency
+      //CATDEF    RD
+      //DESCR     Set or Decrement VFO-A RIT value
+      //SET       RDxxxxx;
+      //NOTE      when x is not given (RD;)  decrement by 10 Hz (CW modes) or 50 Hz (other modes)
+      //NOTE      when x is given, set VFO-A rit value to the negative of x
+      //ENDDEF
       if (command[2] == ';') {
         if (vfo[VFO_A].mode == modeCWL || vfo[VFO_A].mode == modeCWU) {
           vfo[VFO_A].rit -= 10;
@@ -4821,7 +4706,7 @@ int parse_cmd(void *data) {
 
         g_idle_add(ext_vfo_update, NULL);
       } else if (command[7] == ';') {
-        vfo[VFO_A].rit = atoi(&command[2]);
+        vfo[VFO_A].rit = -atoi(&command[2]);
         g_idle_add(ext_vfo_update, NULL);
       }
 
@@ -4843,8 +4728,13 @@ int parse_cmd(void *data) {
       break;
 
     case 'T': //RT
-
-      // set/read RIT enable
+      //CATDEF    RT
+      //DESCR     Read/Set VFO-A RIT status
+      //SET       RTx;
+      //READ      RT;
+      //RESP      RTx;
+      //NOTE      x=0: VFO-A RIT off, x=1: on
+      //ENDDEF
       if (command[2] == ';') {
         snprintf(reply, 256, "RT%d;", vfo[VFO_A].rit_enabled);
         send_resp(client->fd, reply);
@@ -4856,8 +4746,12 @@ int parse_cmd(void *data) {
       break;
 
     case 'U': //RU
-
-      // increments RIT Frequency
+      //CATDEF    RU
+      //DESCR     Set or Increment VFO-A RIT value
+      //SET       RUxxxxx;
+      //NOTE      when x is not given (RU;)  increment by 10 Hz (CW modes) or 50 Hz (other modes)
+      //NOTE      when x is given, set VFO-A rit value to x
+      //ENDDEF
       if (command[2] == ';') {
         if (vfo[VFO_A].mode == modeCWL || vfo[VFO_A].mode == modeCWU) {
           vfo[VFO_A].rit += 10;
@@ -4874,8 +4768,10 @@ int parse_cmd(void *data) {
       break;
 
     case 'X': //RX
-
-      // set transceiver to RX mode
+      //CATDEF    RX
+      //DESCR     Enter RX mode
+      //SET       RX;
+      //ENDDEF
       if (command[2] == ';') {
         mox_update(0);
       }
@@ -4892,10 +4788,21 @@ int parse_cmd(void *data) {
   case 'S':
     switch (command[1]) {
     case 'A': //SA
-
-      // set/read stallite mode status
+      //CATDEF    SA
+      //DESCR     Set/Read SAT mode
+      //SET       SAxyzabcdssssssss;
+      //READ      SA;
+      //RESP      SAxyzsbcdeeeeeeee;
+      //NOTE      x=0: neither SAT nor RSAT, x=1: SAT or RSAT
+      //NOTE      y,z,s always zero
+      //NOTE      c = 1 indicates SAT mode (TRACE)
+      //NOTE      d = 1 indicates RSAT mode (TRACE REV)
+      //NOTE      e = eight-character label, here "SAT     "
+      //NOTE      when setting, c == d == 1 is illegal
+      //NOTE      when setting, s is ignored
+      //ENDDEF
       if (command[2] == ';') {
-        snprintf(reply, 256, "SA%d%d%d%d%d%d%dSAT?    ;", (sat_mode == SAT_MODE) || (sat_mode == RSAT_MODE), 0, 0, 0,
+        snprintf(reply, 256, "SA%d%d%d%d%d%d%dSAT     ;", (sat_mode == SAT_MODE) || (sat_mode == RSAT_MODE), 0, 0, 0,
                  sat_mode == SAT_MODE, sat_mode == RSAT_MODE, 0);
         send_resp(client->fd, reply);
       } else if (command[9] == ';') {
@@ -4929,14 +4836,20 @@ int parse_cmd(void *data) {
       break;
 
     case 'D': //SD
-
-      // set/read CW break-in time delay
+      //CATDEF    SD
+      //DESCR     Set/Read CW break-in hang time
+      //SET       SDxxxx;
+      //READ      SD;
+      //RESP      SDxxxx;
+      //NOTE      x = 0...1000 (in milli seconds)
+      //NOTE      when setting, x = 0  disables break-in
+      //ENDDEF
       if (command[2] == ';') {
         snprintf(reply, 256, "SD%04d;", (int)fmin(cw_keyer_hang_time, 1000));
         send_resp(client->fd, reply);
       } else if (command[6] == ';') {
         int b = fmin(atoi(&command[2]), 1000);
-        cw_breakin = b == 0;
+        cw_breakin = (b == 0);
         cw_keyer_hang_time = b;
       } else {
         implemented = FALSE;
@@ -4945,16 +4858,34 @@ int parse_cmd(void *data) {
       break;
 
     case 'H': //SH
-
-      // set/read filter high, switch to Var1 only when setting
+      //CATDEF    SH
+      //DESCR     Set/Read VFO-A filter high-water (LSB, USB, DIGL, DIGU only)
+      //SET       SHxx;
+      //READ      SH;
+      //RESP      SHxx;
+      //NOTE      When setting, the Var1 filter is activated
+      //NOTE      x = 0...11 encodes filter high water mark in Hz:
+      //NOTE      1400 (x=0), 1600 (x=1), 1800 (x=2), 2000 (x=3)
+      //NOTE      2200 (x=4), 2400 (x=5), 2600 (x=6), 2800 (x=7)
+      //NOTE      3000 (x=8), 3400 (x=9), 4000 (x=10), 5000 (x=11)
+      //ENDDEF
       if (command[2] == ';') {
         FILTER *mode_filters = filters[vfo[VFO_A].mode];
         const FILTER *filter = &mode_filters[vfo[VFO_A].filter];
-        int fh = 5;
-        int high = filter->high;
+        int fh, high=0;
 
-        if (vfo[VFO_A].mode == modeLSB) {
+        switch (vfo[VFO_A].mode) {
+        case modeLSB:
+        case modeDIGL:
           high = abs(filter->low);
+          break;
+        case modeUSB:
+        case modeDIGU:
+          high = filter->high;
+          break;
+        default:
+          implemented = FALSE;
+          break;
         }
 
         if (high <= 1400) {
@@ -4983,8 +4914,10 @@ int parse_cmd(void *data) {
           fh = 11;
         }
 
-        snprintf(reply, 256, "SH%02d;", fh);
-        send_resp(client->fd, reply) ;
+        if (implemented) {
+          snprintf(reply, 256, "SH%02d;", fh);
+          send_resp(client->fd, reply) ;
+        }
       } else if (command[4] == ';') {
         // make sure filter is filterVar1
         if (vfo[VFO_A].filter != filterVar1) {
@@ -4994,13 +4927,9 @@ int parse_cmd(void *data) {
         FILTER *mode_filters = filters[vfo[VFO_A].mode];
         FILTER *filter = &mode_filters[filterVar1];
         int i = atoi(&command[2]);
-        int fh = 100;
+        int fh;
 
-        switch (vfo[VFO_A].mode) {
-        case modeLSB:
-        case modeUSB:
-        case modeFMN:
-          switch (i) {
+        switch (i) {
           case 0:
             fh = 1400;
             break;
@@ -5052,43 +4981,19 @@ int parse_cmd(void *data) {
           default:
             fh = 100;
             break;
-          }
-
-          break;
-
-        case modeAM:
-        case modeSAM:
-          switch (i) {
-          case 0:
-            fh = 10;
-            break;
-
-          case 1:
-            fh = 100;
-            break;
-
-          case 2:
-            fh = 200;
-            break;
-
-          case 3:
-            fh = 500;
-            break;
-
-          default:
-            fh = 100;
-            break;
-          }
-
-          break;
         }
-
-        if (vfo[VFO_A].mode == modeLSB) {
-          filter->low = -fh;
-        } else {
+        switch (vfo[VFO_A].mode) {
+        case modeUSB:
+        case modeDIGU:
           filter->high = fh;
+          break;
+        case modeLSB:
+        case modeDIGL:
+          filter->low = -fh;
+          break;
+        default:
+          implemented = FALSE;
         }
-
         vfo_id_filter_changed(VFO_A, filterVar1);
         g_idle_add(ext_vfo_update, NULL);
       }
@@ -5101,15 +5006,24 @@ int parse_cmd(void *data) {
       break;
 
     case 'L': //SL
-
-      // set/read filter low, switch to Var1 only when setting
+      //CATDEF    SL
+      //DESCR     Set/Read VFO-A filter low-water (LSB, USB, DIGL, DIGU only)
+      //SET       SLxx;
+      //READ      SL;
+      //RESP      SLxx;
+      //NOTE      When setting, the Var1 filter is activated
+      //NOTE      x = 0...11 encodes filter low water mark in Hz:
+      //NOTE      10 (x=0), 50 (x=1), 100 (x=2), 200 (x=3)
+      //NOTE      300 (x=4), 400 (x=5), 500 (x=6), 600 (x=7)
+      //NOTE      700 (x=8), 800 (x=9), 900 (x=10), 1000 (x=11)
+      //ENDDEF
       if (command[2] == ';') {
         FILTER *mode_filters = filters[vfo[VFO_A].mode];
         const FILTER *filter = &mode_filters[vfo[VFO_A].filter];
         int fl = 2;
         int low = filter->low;
 
-        if (vfo[VFO_A].mode == modeLSB) {
+        if (vfo[VFO_A].mode == modeLSB || vfo[VFO_A].mode == modeDIGL) {
           low = abs(filter->high);
         }
 
@@ -5152,11 +5066,7 @@ int parse_cmd(void *data) {
         int i = atoi(&command[2]);
         int fl = 100;
 
-        switch (vfo[VFO_A].mode) {
-        case modeLSB:
-        case modeUSB:
-        case modeFMN:
-          switch (i) {
+        switch (i) {
           case 0:
             fl = 10;
             break;
@@ -5208,41 +5118,17 @@ int parse_cmd(void *data) {
           default:
             fl = 100;
             break;
-          }
-
-          break;
-
-        case modeAM:
-        case modeSAM:
-          switch (i) {
-          case 0:
-            fl = 10;
-            break;
-
-          case 1:
-            fl = 100;
-            break;
-
-          case 2:
-            fl = 200;
-            break;
-
-          case 3:
-            fl = 500;
-            break;
-
-          default:
-            fl = 100;
-            break;
-          }
-
-          break;
         }
 
-        if (vfo[VFO_A].mode == modeLSB) {
+        switch (vfo[VFO_A].mode) {
+        case modeLSB:
+        case modeDIGL:
           filter->high = -fl;
-        } else {
+          break;
+        case modeUSB:
+        case modeDIGU:
           filter->low = fl;
+          break;
         }
 
         vfo_id_filter_changed(VFO_A, filterVar1);
@@ -5252,49 +5138,51 @@ int parse_cmd(void *data) {
       break;
 
     case 'M': //SM
-
-      // read the S meter
-      // Reply is of the form SMYxxxx; where Y = 0,1 and x is from 0 to 30
-      // -127 dBm ==> x = 0000
-      //  -73 dBm ==> x = 0015
-      //  -19 dBm ==> x = 0030
-      //
+      //CATDEF    SM
+      //DESCR     Read S-meter
+      //READ      SMx;
+      //RESP      SMxyyyy;
+      //NOTE      x=0: read RX0, x=1: RX1
+      //NOTE      y : 0 ... 30 mapped to -127...-19 dBm
+      //ENDDEF
       if (command[3] == ';') {
         int id = atoi(&command[2]);
 
-        if (id >= 0 && id < receivers) {
+        RXCHECK (id,
           int val = (int)((receiver[id]->meter + 127.0) * 0.277778);
-
           if (val > 30) { val = 30; }
-
           if (val < 0 ) { val = 0; }
-
           snprintf(reply, 256, "SM%d%04d;", id, val);
           send_resp(client->fd, reply);
-        } else {
-          implemented = FALSE;
-        }
+        )
       }
 
       break;
 
     case 'Q': //SQ
-
-      // set/read Squelch level
+      //CATDEF    SQ
+      //DESCR     Set/Read squelch level (Squelch slider)
+      //SET       SQxyyy;
+      //READ      SQx;
+      //RESP      SQxyyy
+      //NOTE      x=0: read/set RX0 squelch, x=1: RX1
+      //NOTE      y : 0-255 mapped to 0-100
+      //ENDDEF
       if (command[3] == ';') {
-        int p1 = atoi(&command[2]);
+        int id = atoi(&command[2]);
 
-        if (p1 == 0) { // Main receiver
-          snprintf(reply, 256, "SQ%d%03d;", p1, (int)((double)receiver[0]->squelch / 100.0 * 255.0 + 0.5));
+        RXCHECK(id,
+          snprintf(reply, 256, "SQ%d%03d;", id, (int)((double)receiver[id]->squelch / 100.0 * 255.0 + 0.5));
           send_resp(client->fd, reply);
-        }
+        )
       } else if (command[6] == ';') {
-        if (command[2] == '0') {
-          int p2 = atoi(&command[3]);
-          receiver[0]->squelch = (int)((double)p2 / 255.0 * 100.0 + 0.5);
-          set_squelch(receiver[0]);
-        }
-      } else {
+        int id = atoi(&command[2]);
+        int p2 = atoi(&command[3]);
+
+        RXCHECK(id,
+          receiver[id]->squelch = (int)((double)p2 / 255.0 * 100.0 + 0.5);
+          set_squelch(receiver[id]);
+        )
       }
 
       break;
@@ -5364,6 +5252,10 @@ int parse_cmd(void *data) {
       break;
 
     case 'X': //TX
+      //CATDEF    TX
+      //DESCR     Enter TX mode
+      //SET       TX;
+      //ENDDEF
 
       // set transceiver to TX mode
       if (command[2] == ';') {
@@ -5373,8 +5265,15 @@ int parse_cmd(void *data) {
       break;
 
     case 'Y': //TY
-      // set/read microprocessor firmware type
-      send_resp(client->fd, "TY000;");
+      //CATDEF    TY
+      //DESCR     Read firmware version
+      //READ      TY;
+      //RESP      TYxxx;
+      //NOTE      x is always zero
+      //ENDDEF
+      if (command[2] == ';') {
+        send_resp(client->fd, "TY000;");
+      }
       break;
 
     default:
@@ -5392,8 +5291,11 @@ int parse_cmd(void *data) {
       break;
 
     case 'P': //UP
-
-      // move VFO A up by step
+      //CATDEF    UP
+      //DESCR     Move VFO-A one step up
+      //SET       UP;
+      //NOTE      use current VFO-A step size
+      //ENDDEF
       if (command[2] == ';') {
         vfo_id_step(VFO_A, 1);
       }
@@ -5415,14 +5317,18 @@ int parse_cmd(void *data) {
       break;
 
     case 'G': //VG
-
-      // set/read VOX gain (0..9)
+      //CATDEF    VG
+      //DESCR     Set/Read VOX threshold
+      //SET       VGxxx;
+      //READ      VG;
+      //RESP      VGxxx;
+      //NOTE      x is in the range 0-9, mapped to an amplitude
+      //NOTE      threshold 0.0-1.0
+      //ENDDEF
       if (command[2] == ';') {
-        // convert 0.0..1.0 to 0..9
         snprintf(reply, 256, "VG%03d;", (int)((vox_threshold * 100.0) * 0.9));
         send_resp(client->fd, reply);
       } else if (command[5] == ';') {
-        // convert 0..9 to 0.0..1.0
         vox_threshold = atof(&command[2]) / 9.0;
         g_idle_add(ext_vfo_update, NULL);
       }
@@ -5435,8 +5341,13 @@ int parse_cmd(void *data) {
       break;
 
     case 'X': //VX
-
-      // set/read VOX status
+      //CATDEF    VX
+      //DESCR     Set/Read VOX status
+      //SET       VXx;
+      //READ      VX;
+      //RESP      VGx;
+      //NOTE      x=0: VOX disabled, x=1: enabled
+      //ENDDEF
       if (command[2] == ';') {
         snprintf(reply, 256, "VX%d;", vox_enabled);
         send_resp(client->fd, reply);
@@ -5466,8 +5377,13 @@ int parse_cmd(void *data) {
   case 'X':
     switch (command[1]) {
     case 'T': //XT
-
-      // set/read XIT enable
+      //CATDEF    XT
+      //DESCR     Set/Read XIT status
+      //SET       XTx;
+      //READ      XT;
+      //RESP      XTx;
+      //NOTE      x=0: XIT disabled, x=1: enabled
+      //ENDDEF
       if (can_transmit) {
         if (command[2] == ';') {
           snprintf(reply, 256, "XT%d;", vfo[get_tx_vfo()].xit_enabled);
@@ -5662,6 +5578,13 @@ static gpointer serial_server(gpointer data) {
 
     if (numbytes > 0) {
       for (i = 0; i < numbytes; i++) {
+        //
+        // Filter out newlines and other non-printable characters
+        // These may occur when doing CAT manually with a terminal program
+        //
+        if (cmd_input[i] < 32) {
+          continue;
+        }
         command[command_index] = cmd_input[i];
         command_index++;
 
@@ -5695,15 +5618,15 @@ static gpointer serial_server(gpointer data) {
   return NULL;
 }
 
-static int last_mox;
-static int last_tune;
-static int last_ps;
-static int last_ctun;
-static int last_lock;
-static int last_div;
-static int last_rit;
-static int last_xit;
-static int last_vfoa;
+static int andromeda_last_mox;
+static int andromeda_last_tune;
+static int andromeda_last_ps;
+static int andromeda_last_ctun;
+static int andromeda_last_lock;
+static int andromeda_last_div;
+static int andromeda_last_rit;
+static int andromeda_last_xit;
+static int andromeda_last_vfoa;
 
 gboolean andromeda_handler(gpointer data) {
   //
@@ -5715,64 +5638,64 @@ gboolean andromeda_handler(gpointer data) {
 
   if (!client->running) { return FALSE; }
 
-  if (last_vfoa != active_receiver->id) {
+  if (andromeda_last_vfoa != active_receiver->id) {
     snprintf(reply, 256, "ZZZI10%d;", active_receiver->id ^ 1);
     send_resp(client->fd, reply);
-    last_vfoa = active_receiver->id;
+    andromeda_last_vfoa = active_receiver->id;
   }
 
-  if (last_div != diversity_enabled) {
+  if (andromeda_last_div != diversity_enabled) {
     snprintf(reply, 256, "ZZZI05%d;", diversity_enabled);
     send_resp(client->fd, reply);
-    last_div = diversity_enabled;
+    andromeda_last_div = diversity_enabled;
   }
 
-  if (last_mox != mox) {
+  if (andromeda_last_mox != mox) {
     snprintf(reply, 256, "ZZZI01%d;", mox);
     send_resp(client->fd, reply);
-    last_mox = mox;
+    andromeda_last_mox = mox;
   }
 
-  if (last_tune != tune) {
+  if (andromeda_last_tune != tune) {
     snprintf(reply, 256, "ZZZI03%d;", tune);
     send_resp(client->fd, reply);
-    last_tune = tune;
+    andromeda_last_tune = tune;
   }
 
   if (can_transmit) {
-    if (last_ps != transmitter->puresignal) {
+    if (andromeda_last_ps != transmitter->puresignal) {
       snprintf(reply, 256, "ZZZI04%d;", transmitter->puresignal);
       send_resp(client->fd, reply);
-      last_ps = transmitter->puresignal;
+      andromeda_last_ps = transmitter->puresignal;
     }
   }
 
-  if (last_ctun != vfo[active_receiver->id].ctun) {
+  if (andromeda_last_ctun != vfo[active_receiver->id].ctun) {
     snprintf(reply, 256, "ZZZI07%d;", vfo[active_receiver->id].ctun);
     send_resp(client->fd, reply);
-    last_ctun = vfo[active_receiver->id].ctun;
+    andromeda_last_ctun = vfo[active_receiver->id].ctun;
   }
 
-  if (last_rit != vfo[active_receiver->id].rit_enabled) {
+  if (andromeda_last_rit != vfo[active_receiver->id].rit_enabled) {
     snprintf(reply, 256, "ZZZI08%d;", vfo[active_receiver->id].rit_enabled);
     send_resp(client->fd, reply);
-    last_rit = vfo[active_receiver->id].rit_enabled;
+    andromeda_last_rit = vfo[active_receiver->id].rit_enabled;
   }
 
   if (can_transmit) {
     int new_xit = vfo[get_tx_vfo()].xit_enabled;
 
-    if (last_xit != new_xit) {
+    if (andromeda_last_xit != new_xit) {
       snprintf(reply, 256, "ZZZI09%d;", new_xit);
       send_resp(client->fd, reply);
-      last_xit = new_xit;
+      andromeda_last_xit = new_xit;
     }
   }
 
-  if (last_lock != locked) {
+  if (andromeda_last_lock != locked) {
     snprintf(reply, 256, "ZZZI11%d;", locked);
     send_resp(client->fd, reply);
-    last_lock = locked;
+    andromeda_last_lock = locked;
   }
 
   return TRUE;
@@ -5788,7 +5711,9 @@ gboolean andromeda_init(gpointer data) {
   if (!client->running) { return FALSE; }
 
   // This triggers new results to be reported;
-  last_mox = last_tune = last_ps = last_ctun = last_lock = last_div = last_rit = last_xit = last_vfoa = -999;
+  andromeda_last_mox = andromeda_last_tune = andromeda_last_ps = andromeda_last_ctun
+                     = andromeda_last_lock = andromeda_last_div = andromeda_last_rit
+                     = andromeda_last_xit = andromeda_last_vfoa = -999;
   // This triggers a reply (from Andromeda) to report its FP version
   send_resp(client->fd, "ZZZS;");
   return FALSE;
@@ -5839,7 +5764,9 @@ int launch_serial (int id) {
 
   serial_client[id].running = 1;
   serial_client[id].andromeda_timer = 0;
-  serial_client[id].thread_id = g_thread_new( "Serial server", serial_server, &serial_client[id]);
+  serial_client[id].auto_reporting = SET(rigctl_start_with_autoreporting);
+
+  serial_client[id].thread_id = g_thread_new( "Serial server", serial_server, (gpointer)&serial_client[id]);
   //
   // If this is a serial line to an ANDROMEDA controller, initialize it and start a periodic GTK task
   //
@@ -5881,6 +5808,7 @@ void disable_serial (int id) {
     serial_client[id].thread_id = NULL;
   }
 
+  serial_client[id].running = 0;
   if (serial_client[id].fd >= 0) {
     close(serial_client[id].fd);
     serial_client[id].fd = -1;
@@ -5904,5 +5832,11 @@ void launch_rigctl () {
   mutex_a = g_new(GT_MUTEX, 1); // memory leak
   g_mutex_init(&mutex_a->m);
   server_running = 1;
+
+  //
+  // Start auto reporter
+  //
+  g_timeout_add(250, auto_reporter, NULL);
+
   rigctl_server_thread_id = g_thread_new( "rigctl server", rigctl_server, GINT_TO_POINTER(rigctl_port_base));
 }

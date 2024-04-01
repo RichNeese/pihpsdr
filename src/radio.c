@@ -210,6 +210,7 @@ int cw_keyer_ptt_delay = 30;           // 0-255ms
 int cw_keyer_hang_time = 500;          // ms
 int cw_keyer_sidetone_frequency = 800; // Hz
 int cw_breakin = 1;                    // 0=disabled 1=enabled
+int cw_ramp_width = 8;                 // default value (in ms)
 
 int enable_auto_tune = 0;
 int auto_tune_flag = 0;
@@ -306,6 +307,9 @@ double drive_digi_max = 100.0; // maximum drive in DIGU/DIGL
 
 gboolean display_warnings = TRUE;
 gboolean display_pacurr = TRUE;
+
+gint window_x_pos=0;
+gint window_y_pos=0;
 
 int rx_height;
 
@@ -1534,11 +1538,6 @@ void start_radio() {
 #endif
 }
 
-void disable_rigctl() {
-  t_print("RIGCTL: disable_rigctl()\n");
-  close_rigctl_ports();
-}
-
 void radio_change_receivers(int r) {
   t_print("radio_change_receivers: from %d to %d\n", receivers, r);
 
@@ -2375,6 +2374,8 @@ void radioRestoreState() {
   // but this is too much for the moment. TODO: initialize at least all
   // variables that are needed if the radio is remote
   //
+  GetPropI0("WindowPositionX",                               window_x_pos);
+  GetPropI0("WindowPositionY",                               window_y_pos);
   GetPropI0("display_zoompan",                               display_zoompan);
   GetPropI0("display_sliders",                               display_sliders);
   GetPropI0("display_toolbar",                               display_toolbar);
@@ -2397,6 +2398,15 @@ void radioRestoreState() {
 
   if (display_height > screen_height ) { display_height = screen_height; }
 
+  //
+  // Re-position top window to the position in the props file, provided
+  // there are at least 100 pixels left. This assumes the default setting
+  // (GDK_GRAVITY_NORTH_WEST) where the "position" refers to the top left corner
+  // of the window.
+  //
+  if ((window_x_pos < screen_width - 100) && (window_y_pos < screen_height - 100)) {
+    gtk_window_move(GTK_WINDOW(top_window), window_x_pos, window_y_pos);
+  }
 #ifdef CLIENT_SERVER
   GetPropI0("radio.hpsdr_server",                            hpsdr_server);
   GetPropI0("radio.hpsdr_server.listen_port",                listen_port);
@@ -2446,6 +2456,7 @@ void radioRestoreState() {
   GetPropI0("cw_keyer_hang_time",                            cw_keyer_hang_time);
   GetPropI0("cw_keyer_sidetone_frequency",                   cw_keyer_sidetone_frequency);
   GetPropI0("cw_breakin",                                    cw_breakin);
+  GetPropI0("cw_ramp_width",                                 cw_ramp_width);
   GetPropI0("vfo_encoder_divisor",                           vfo_encoder_divisor);
   GetPropI0("OCtune",                                        OCtune);
   GetPropI0("OCfull_tune_time",                              OCfull_tune_time);
@@ -2480,6 +2491,7 @@ void radioRestoreState() {
   GetPropI0("radio.display_warnings",                        display_warnings);
   GetPropI0("radio.display_pacurr",                          display_pacurr);
   GetPropI0("rigctl_enable",                                 rigctl_enable);
+  GetPropI0("rigctl_start_with_autoreporting",               rigctl_start_with_autoreporting);
   GetPropI0("rigctl_port_base",                              rigctl_port_base);
   GetPropI0("mute_spkr_amp",                                 mute_spkr_amp);
   GetPropI0("adc0_filter_bypass",                            adc0_filter_bypass);
@@ -2588,6 +2600,12 @@ void radioSaveState() {
 
     transmitterSaveState(transmitter);
   }
+  //
+  // Obtain window position and save in props file
+  //
+  gtk_window_get_position(GTK_WINDOW(top_window), &window_x_pos, &window_y_pos);
+  SetPropI0("WindowPositionX",                               window_x_pos);
+  SetPropI0("WindowPositionY",                               window_y_pos);
 
   //
   // What comes now is essentially copied from radioRestoreState,
@@ -2659,6 +2677,7 @@ void radioSaveState() {
   SetPropI0("cw_keyer_hang_time",                            cw_keyer_hang_time);
   SetPropI0("cw_keyer_sidetone_frequency",                   cw_keyer_sidetone_frequency);
   SetPropI0("cw_breakin",                                    cw_breakin);
+  SetPropI0("cw_ramp_width",                                 cw_ramp_width);
   SetPropI0("vfo_encoder_divisor",                           vfo_encoder_divisor);
   SetPropI0("OCtune",                                        OCtune);
   SetPropI0("OCfull_tune_time",                              OCfull_tune_time);
@@ -2685,6 +2704,7 @@ void radioSaveState() {
   SetPropI0("radio.display_warnings",                        display_warnings);
   SetPropI0("radio.display_pacurr",                          display_pacurr);
   SetPropI0("rigctl_enable",                                 rigctl_enable);
+  SetPropI0("rigctl_start_with_autoreporting",               rigctl_start_with_autoreporting);
   SetPropI0("rigctl_port_base",                              rigctl_port_base);
   SetPropI0("mute_spkr_amp",                                 mute_spkr_amp);
   SetPropI0("adc0_filter_bypass",                            adc0_filter_bypass);
